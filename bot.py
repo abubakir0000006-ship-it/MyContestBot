@@ -2,6 +2,7 @@ import asyncio
 import sqlite3
 import os
 import logging
+import random
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -28,6 +29,7 @@ class Reg(StatesGroup):
     phone = State()
     mailing_text = State()
     mailing_photo = State()
+    random_count = State()
 
 def main_menu():
     return ReplyKeyboardMarkup(keyboard=[
@@ -41,7 +43,8 @@ async def start(message: types.Message):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
             [InlineKeyboardButton(text="👥 Ishtirokchilar", callback_data="admin_users")],
-            [InlineKeyboardButton(text="📢 Konkurs rasilkasi", callback_data="admin_mailing")]
+            [InlineKeyboardButton(text="📢 Konkurs rasilkasi", callback_data="admin_mailing")],
+            [InlineKeyboardButton(text="🎲 Random", callback_data="admin_random")]
         ])
         await message.answer("👑 Admin-panel:", reply_markup=kb)
     else:
@@ -63,6 +66,30 @@ async def check_sub(call: types.CallbackQuery):
             await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
     except:
         await call.answer("❌ Xatolik yuz berdi!")
+
+@dp.callback_query(F.data == "admin_random")
+async def admin_random_start(call: types.CallbackQuery, state: FSMContext):
+    await call.message.answer("Введите количество победителей (от 1 до 20):")
+    await state.set_state(Reg.random_count)
+
+@dp.message(Reg.random_count)
+async def process_random(message: types.Message, state: FSMContext):
+    try:
+        count = int(message.text)
+        if 1 <= count <= 20:
+            cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
+            users = cursor.fetchall()
+            if not users:
+                await message.answer("Ishtirokchilar hali yo'q!")
+            else:
+                winners = random.sample(users, min(count, len(users)))
+                res = "🎁 G'oliblar:\n" + "\n".join([f"{w[0]} ({w[1]})" for w in winners])
+                await message.answer(res)
+        else:
+            await message.answer("Iltimos, 1 dan 20 gacha raqam kiriting.")
+    except:
+        await message.answer("Xatolik! Raqam kiriting.")
+    await state.clear()
 
 @dp.callback_query(F.data == "join_contest")
 async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
@@ -116,7 +143,7 @@ async def admin_contact(message: types.Message):
 @dp.callback_query(F.data.startswith("admin_"))
 async def admin_panel(call: types.CallbackQuery, state: FSMContext):
     if call.data == "admin_stats":
-        cursor.execute('SELECT count(*) FROM users')
+        cursor.execute('SELECT count(*) FROM users WHERE registered = 1')
         await call.message.answer(f"📊 Jami ishtirokchilar: {cursor.fetchone()[0]}")
     elif call.data == "admin_users":
         cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
@@ -145,9 +172,7 @@ async def get_mailing_text(message: types.Message, state: FSMContext):
     await message.answer("✅ Rasylka yuborildi!")
     await state.clear()
 
-# ВЕБ-СЕРВЕР ДЛЯ RENDER (БЕСПЛАТНО)
 async def handle(request): return web.Response(text="Bot is running")
-
 async def run_web():
     app = web.Application()
     app.router.add_get('/', handle)
