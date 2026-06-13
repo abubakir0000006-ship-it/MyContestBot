@@ -38,11 +38,21 @@ def main_menu():
         [KeyboardButton(text="👨‍💻 Admin")]
     ], resize_keyboard=True)
 
+# --- АВТО-НАПОМИНАЛКА ---
+async def auto_reminder():
+    while True:
+        await asyncio.sleep(3600)  # Проверка каждый час
+        cursor.execute('SELECT id FROM users WHERE registered = 0')
+        unregistered_users = cursor.fetchall()
+        for u in unregistered_users:
+            try:
+                await bot.send_message(u[0], "👋 Salom! Konkursda hali qatnashmadingiz. Tezroq ro'yxatdan o'ting va yutuqlarni yutib oling! 🎁")
+            except: pass
+
 @dp.message(Command("start"))
 async def start(message: types.Message):
     cursor.execute('INSERT OR IGNORE INTO users (id) VALUES (?)', (message.from_user.id,))
     conn.commit()
-
     if message.from_user.id in ADMINS:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
@@ -69,10 +79,7 @@ async def check_sub(call: types.CallbackQuery):
             await call.message.answer("✅ Ajoyib! Endi asosiy menyudan '🎁 Konkursga qatnash' tugmasini bosing.", reply_markup=main_menu())
         else:
             await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
-    except:
-        await call.answer("❌ Xatolik yuz berdi!")
-
-# --- Админ функции ---
+    except: await call.answer("❌ Xatolik yuz berdi!")
 
 @dp.callback_query(F.data == "admin_export")
 async def admin_export(call: types.CallbackQuery):
@@ -199,6 +206,7 @@ async def run_web():
 
 async def main():
     await run_web()
+    asyncio.create_task(auto_reminder()) # Запускаем напоминалку
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
