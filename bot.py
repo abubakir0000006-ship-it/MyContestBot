@@ -48,8 +48,11 @@ async def start(message: types.Message):
         ])
         await message.answer("👑 Admin-panel:", reply_markup=kb)
     else:
+        # Кнопки как на твоем фото
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
+            [InlineKeyboardButton(text="🎬 YouTube", url="https://youtube.com/@example")],
+            [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/example")],
             [InlineKeyboardButton(text="🟢 Tekshirish", callback_data="check_sub")]
         ])
         await message.answer("🎉 AZIZZOMBI KONKURS GA XUSH KELIBSIZ!\n\nObuna bo'lgandan keyin 🟢 Tekshirish tugmasini bosing.", reply_markup=kb)
@@ -57,6 +60,7 @@ async def start(message: types.Message):
 @dp.callback_query(F.data == "check_sub")
 async def check_sub(call: types.CallbackQuery):
     try:
+        # Проверяем только Telegram, так как к YouTube/Kick у бота нет доступа
         member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=call.from_user.id)
         if member.status in ['member', 'administrator', 'creator']:
             await call.message.answer("✅ Ajoyib! Endi asosiy menyudan '🎁 Konkursga qatnash' tugmasini bosing.", reply_markup=main_menu())
@@ -64,6 +68,8 @@ async def check_sub(call: types.CallbackQuery):
             await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
     except:
         await call.answer("❌ Xatolik yuz berdi!")
+
+# --- ВЕСЬ ОСТАЛЬНОЙ КОД (Admin-panel, Random, Регистрация) ОСТАЛСЯ БЕЗ ИЗМЕНЕНИЙ ---
 
 @dp.callback_query(F.data == "admin_random")
 async def admin_random_start(call: types.CallbackQuery, state: FSMContext):
@@ -181,7 +187,6 @@ async def run_web():
 
 async def main():
     await run_web()
-    # ПРИНУДИТЕЛЬНЫЙ СБРОС СЕССИЙ ПЕРЕД СТАРТОМ
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
