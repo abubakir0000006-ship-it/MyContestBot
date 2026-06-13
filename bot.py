@@ -18,9 +18,10 @@ ADMINS = [8350819510, 6495811530]
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
+# Обновил таблицу: добавил колонку status (1 = участвует)
 conn = sqlite3.connect('contest.db', check_same_thread=False)
 cursor = conn.cursor()
-cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT)')
+cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, status INTEGER)')
 conn.commit()
 
 class Reg(StatesGroup):
@@ -60,8 +61,13 @@ async def check_sub(call: types.CallbackQuery):
 
 @dp.message(F.text == "🎁 Konkursga qatnash")
 async def start_contest(message: types.Message, state: FSMContext):
-    await message.answer("📝 Ishtirok etish uchun pasport bo'yicha FIO kiriting:")
-    await state.set_state(Reg.fio)
+    cursor.execute('SELECT status FROM users WHERE id = ?', (message.from_user.id,))
+    user = cursor.fetchone()
+    if user and user[0] == 1:
+        await message.answer("⚠️ Siz allaqachon ro'yxatdan o'tgansiz!")
+    else:
+        await message.answer("📝 Ishtirok etish uchun pasport bo'yicha FIO kiriting:")
+        await state.set_state(Reg.fio)
 
 @dp.message(Reg.fio)
 async def get_fio(message: types.Message, state: FSMContext):
@@ -73,7 +79,8 @@ async def get_fio(message: types.Message, state: FSMContext):
 @dp.message(Reg.phone, F.contact)
 async def get_phone(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    cursor.execute('INSERT OR REPLACE INTO users (id, name, phone) VALUES (?, ?, ?)', (message.from_user.id, data['fio'], message.contact.phone_number))
+    cursor.execute('INSERT OR REPLACE INTO users (id, name, phone, status) VALUES (?, ?, ?, 1)', 
+                   (message.from_user.id, data['fio'], message.contact.phone_number))
     conn.commit()
     await message.answer("🎉 Tabriklaymiz! Siz muvaffaqiyatli ro'yxatdan o'tdingiz.", reply_markup=main_menu())
     await state.clear()
@@ -101,7 +108,6 @@ async def admin_contact(message: types.Message):
 async def home(message: types.Message):
     await message.answer("🏠 Asosiy menyu:", reply_markup=main_menu())
 
-# ... (код для админ-панели и рассылки оставлен без изменений) ...
 @dp.callback_query(F.data.startswith("admin_"))
 async def admin_panel(call: types.CallbackQuery, state: FSMContext):
     if call.data == "admin_stats":
