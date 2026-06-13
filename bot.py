@@ -21,7 +21,6 @@ dp = Dispatcher()
 
 conn = sqlite3.connect('contest.db', check_same_thread=False)
 cursor = conn.cursor()
-# Добавил id в таблицу, чтобы сохранять всех, кто нажал старт
 cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, registered INTEGER DEFAULT 0)')
 conn.commit()
 
@@ -40,10 +39,10 @@ def main_menu():
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    # Добавляем юзера в базу сразу, чтобы рассылка доставала всех
+    # Сохраняем всех, кто нажал старт
     cursor.execute('INSERT OR IGNORE INTO users (id) VALUES (?)', (message.from_user.id,))
     conn.commit()
-    
+
     if message.from_user.id in ADMINS:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
@@ -71,8 +70,6 @@ async def check_sub(call: types.CallbackQuery):
             await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
     except:
         await call.answer("❌ Xatolik yuz berdi!")
-
-# --- Admin-panel ---
 
 @dp.callback_query(F.data == "admin_random")
 async def admin_random_start(call: types.CallbackQuery, state: FSMContext):
@@ -168,8 +165,15 @@ async def get_mailing_text(message: types.Message, state: FSMContext):
     data = await state.get_data()
     cursor.execute('SELECT id FROM users')
     users = cursor.fetchall()
-    # Кнопка теперь добавляется к каждому сообщению рассылки
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Ishtirok etish", callback_data="join_contest")]])
+    
+    # Кнопки как в приветствии + кнопка участия
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
+        [InlineKeyboardButton(text="🎬 YouTube", url="https://youtube.com/@example")],
+        [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/example")],
+        [InlineKeyboardButton(text="✅ Ishtirok etish", callback_data="join_contest")]
+    ])
+    
     for u in users:
         try: await bot.send_photo(u[0], data['photo'], caption=message.text, reply_markup=kb)
         except: pass
