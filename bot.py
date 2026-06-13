@@ -1,12 +1,15 @@
 import asyncio
 import sqlite3
 import os
+import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+
+logging.basicConfig(level=logging.INFO)
 
 API_TOKEN = '8746100227:AAGJEyqYREvDG45np8PbTBbySRJx3lJGizo'
 CHANNEL_ID = -1001913679008
@@ -15,20 +18,15 @@ ADMINS = [8350819510, 6495811530]
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# --- Веб-сервер для Render ---
-async def handle(request):
-    return web.Response(text="Bot is running!")
-
-# --- Логика бота ---
-class Reg(StatesGroup):
-    fio = State()
-    phone = State()
-    mailing = State()
-
 conn = sqlite3.connect('contest.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT)')
 conn.commit()
+
+class Reg(StatesGroup):
+    fio = State()
+    phone = State()
+    mailing = State()
 
 def main_menu():
     return ReplyKeyboardMarkup(keyboard=[
@@ -37,30 +35,36 @@ def main_menu():
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    if message.from_user.id in ADMINS:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
-            [InlineKeyboardButton(text="👥 Участники", callback_data="admin_users")],
-            [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_mailing")]
-        ])
-        await message.answer("👑 Админ-панель:", reply_markup=kb)
-    else:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
-            [InlineKeyboardButton(text="🎬 YouTube", url="https://www.youtube.com/@Azizzombistrim")],
-            [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/aziz-zombi")],
-            [InlineKeyboardButton(text="🟢 Tekshirish", callback_data="check_sub")]
-        ])
-        await message.answer("🎉 AZIZZOMBI KONKURS GA XUSH KELIBSIZ!\n\nObuna bo'lgandan keyin 🟢 Tekshirish tugmasini bosing.", reply_markup=kb)
+    try:
+        if message.from_user.id in ADMINS:
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+                [InlineKeyboardButton(text="👥 Участники", callback_data="admin_users")],
+                [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_mailing")]
+            ])
+            await message.answer("👑 Админ-панель:", reply_markup=kb)
+        else:
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
+                [InlineKeyboardButton(text="🎬 YouTube", url="https://www.youtube.com/@Azizzombistrim")],
+                [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/aziz-zombi")],
+                [InlineKeyboardButton(text="🟢 Tekshirish", callback_data="check_sub")]
+            ])
+            await message.answer("🎉 AZIZZOMBI KONKURS GA XUSH KELIBSIZ!\n\nObuna bo'lgandan keyin 🟢 Tekshirish tugmasini bosing.", reply_markup=kb)
+    except Exception as e:
+        logging.error(f"Error in start: {e}")
 
 @dp.callback_query(F.data == "check_sub")
 async def check_sub(call: types.CallbackQuery):
-    member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=call.from_user.id)
-    if member.status in ['member', 'administrator', 'creator']:
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎁 Ishtirok etish", callback_data="join_contest")]])
-        await call.message.answer("✅ Ajoyib! Endi ishtirok etish tugmasini bosing.", reply_markup=kb)
-    else:
-        await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=call.from_user.id)
+        if member.status in ['member', 'administrator', 'creator']:
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎁 Ishtirok etish", callback_data="join_contest")]])
+            await call.message.answer("✅ Ajoyib! Endi ishtirok etish tugmasini bosing.", reply_markup=kb)
+        else:
+            await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
+    except Exception as e:
+        logging.error(f"Error in check_sub: {e}")
 
 @dp.callback_query(F.data == "join_contest")
 async def join(call: types.CallbackQuery, state: FSMContext):
@@ -133,16 +137,19 @@ async def mailing_process(message: types.Message, state: FSMContext):
     await message.answer("✅ Рассылка завершена!")
     await state.clear()
 
-async def main():
+async def start_web_server():
     app = web.Application()
-    app.router.add_get('/', handle)
+    app.router.add_get('/', lambda r: web.Response(text="Bot is alive!"))
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get('PORT', 10000))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
+
+async def main():
+    await start_web_server()
     print("Bot is starting...")
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, drop_pending_updates=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
