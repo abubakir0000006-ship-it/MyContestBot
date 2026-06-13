@@ -39,7 +39,6 @@ def main_menu():
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    # Сохраняем всех, кто нажал старт
     cursor.execute('INSERT OR IGNORE INTO users (id) VALUES (?)', (message.from_user.id,))
     conn.commit()
 
@@ -54,8 +53,8 @@ async def start(message: types.Message):
     else:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
-            [InlineKeyboardButton(text="🎬 YouTube", url="https://youtube.com/@example")],
-            [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/example")],
+            [InlineKeyboardButton(text="🎬 YouTube", url="https://www.youtube.com/@Azizzombistrim")],
+            [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/aziz-zombi")],
             [InlineKeyboardButton(text="🟢 Tekshirish", callback_data="check_sub")]
         ])
         await message.answer("🎉 AZIZZOMBI KONKURS GA XUSH KELIBSIZ!\n\nObuna bo'lgandan keyin 🟢 Tekshirish tugmasini bosing.", reply_markup=kb)
@@ -166,11 +165,10 @@ async def get_mailing_text(message: types.Message, state: FSMContext):
     cursor.execute('SELECT id FROM users')
     users = cursor.fetchall()
     
-    # Кнопки как в приветствии + кнопка участия
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
-        [InlineKeyboardButton(text="🎬 YouTube", url="https://youtube.com/@example")],
-        [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/example")],
+        [InlineKeyboardButton(text="🎬 YouTube", url="https://www.youtube.com/@Azizzombistrim")],
+        [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/aziz-zombi")],
         [InlineKeyboardButton(text="✅ Ishtirok etish", callback_data="join_contest")]
     ])
     
