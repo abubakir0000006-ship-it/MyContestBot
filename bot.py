@@ -19,6 +19,7 @@ ADMINS = [8350819510, 6495811530]
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
+# Инициализация базы данных
 conn = sqlite3.connect('contest.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, registered INTEGER DEFAULT 0)')
