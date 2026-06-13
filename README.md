@@ -1,0 +1,2 @@
+# MyContestBot
+Azizzombi Konkurs Bot 
