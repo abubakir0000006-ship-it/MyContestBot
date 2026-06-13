@@ -3,12 +3,13 @@ import sqlite3
 import os
 import logging
 import random
+import csv
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, FSInputFile
 
 logging.basicConfig(level=logging.INFO)
 
@@ -46,6 +47,7 @@ async def start(message: types.Message):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
             [InlineKeyboardButton(text="👥 Ishtirokchilar", callback_data="admin_users")],
+            [InlineKeyboardButton(text="📥 Bazani yuklab olish", callback_data="admin_export")],
             [InlineKeyboardButton(text="📢 Konkurs rasilkasi", callback_data="admin_mailing")],
             [InlineKeyboardButton(text="🎲 Random", callback_data="admin_random")]
         ])
@@ -70,6 +72,20 @@ async def check_sub(call: types.CallbackQuery):
     except:
         await call.answer("❌ Xatolik yuz berdi!")
 
+# --- Админ функции ---
+
+@dp.callback_query(F.data == "admin_export")
+async def admin_export(call: types.CallbackQuery):
+    cursor.execute('SELECT id, name, phone FROM users WHERE registered = 1')
+    rows = cursor.fetchall()
+    file_name = "users.csv"
+    with open(file_name, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["ID", "FIO", "Phone"])
+        writer.writerows(rows)
+    await call.message.answer_document(FSInputFile(file_name))
+    os.remove(file_name)
+
 @dp.callback_query(F.data == "admin_random")
 async def admin_random_start(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer("Введите количество победителей (от 1 до 20):")
@@ -81,22 +97,19 @@ async def process_random(message: types.Message, state: FSMContext):
         count = int(message.text)
         cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
         users = cursor.fetchall()
-        if not users:
-            await message.answer("Ishtirokchilar hali yo'q!")
+        if not users: await message.answer("Ishtirokchilar hali yo'q!")
         else:
             winners = random.sample(users, min(count, len(users)))
             res = "🎁 G'oliblar:\n" + "\n".join([f"{w[0]} ({w[1]})" for w in winners])
             await message.answer(res)
         await state.clear()
-    except:
-        await message.answer("Xatolik! Iltimos, raqam kiriting.")
+    except: await message.answer("Xatolik! Iltimos, raqam kiriting.")
 
 @dp.callback_query(F.data == "join_contest")
 async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
     cursor.execute('SELECT registered FROM users WHERE id = ?', (call.from_user.id,))
     user = cursor.fetchone()
-    if user and user[0] == 1:
-        await call.answer("⚠️ Siz allaqachon ro'yxatdan o'tgansiz!", show_alert=True)
+    if user and user[0] == 1: await call.answer("⚠️ Siz allaqachon ro'yxatdan o'tgansiz!", show_alert=True)
     else:
         await call.message.answer("📝 Ishtirok etish uchun pasport bo'yicha FIO kiriting:")
         await state.set_state(Reg.fio)
@@ -105,8 +118,7 @@ async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
 async def start_contest(message: types.Message, state: FSMContext):
     cursor.execute('SELECT registered FROM users WHERE id = ?', (message.from_user.id,))
     user = cursor.fetchone()
-    if user and user[0] == 1:
-        await message.answer("⚠️ Siz allaqachon konkursda qatnashyapsiz!")
+    if user and user[0] == 1: await message.answer("⚠️ Siz allaqachon konkursda qatnashyapsiz!")
     else:
         await message.answer("📝 Ishtirok etish uchun pasport bo'yicha FIO kiriting:")
         await state.set_state(Reg.fio)
@@ -164,14 +176,12 @@ async def get_mailing_text(message: types.Message, state: FSMContext):
     data = await state.get_data()
     cursor.execute('SELECT id FROM users')
     users = cursor.fetchall()
-    
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
         [InlineKeyboardButton(text="🎬 YouTube", url="https://www.youtube.com/@Azizzombistrim")],
         [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/aziz-zombi")],
         [InlineKeyboardButton(text="✅ Ishtirok etish", callback_data="join_contest")]
     ])
-    
     for u in users:
         try: await bot.send_photo(u[0], data['photo'], caption=message.text, reply_markup=kb)
         except: pass
