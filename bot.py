@@ -19,7 +19,7 @@ dp = Dispatcher()
 async def handle(request):
     return web.Response(text="Bot is running!")
 
-# --- Логика бота (как и была) ---
+# --- Логика бота ---
 class Reg(StatesGroup):
     fio = State()
     phone = State()
@@ -133,18 +133,15 @@ async def mailing_process(message: types.Message, state: FSMContext):
     await message.answer("✅ Рассылка завершена!")
     await state.clear()
 
-async def on_startup():
-    print("Bot is starting...")
-
 async def main():
-    # Запуск веб-сервера
     app = web.Application()
     app.router.add_get('/', handle)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get('PORT', 8080)))
+    port = int(os.environ.get('PORT', 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    
+    print("Bot is starting...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
