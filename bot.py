@@ -19,7 +19,6 @@ ADMINS = [8350819510, 6495811530]
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# Инициализация базы данных
 conn = sqlite3.connect('contest.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, registered INTEGER DEFAULT 0)')
@@ -86,11 +85,11 @@ async def process_random(message: types.Message, state: FSMContext):
                 winners = random.sample(users, min(count, len(users)))
                 res = "🎁 G'oliblar:\n" + "\n".join([f"{w[0]} ({w[1]})" for w in winners])
                 await message.answer(res)
+            await state.clear()
         else:
             await message.answer("Iltimos, 1 dan 20 gacha raqam kiriting.")
     except:
-        await message.answer("Xatolik! Raqam kiriting.")
-    await state.clear()
+        await message.answer("Xatolik! Iltimos, faqat raqam kiriting.")
 
 @dp.callback_query(F.data == "join_contest")
 async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
