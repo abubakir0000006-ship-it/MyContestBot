@@ -50,8 +50,6 @@ async def start(message: types.Message):
     else:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
-            [InlineKeyboardButton(text="🎬 YouTube", url="https://www.youtube.com/@Azizzombistrim")],
-            [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/aziz-zombi")],
             [InlineKeyboardButton(text="🟢 Tekshirish", callback_data="check_sub")]
         ])
         await message.answer("🎉 AZIZZOMBI KONKURS GA XUSH KELIBSIZ!\n\nObuna bo'lgandan keyin 🟢 Tekshirish tugmasini bosing.", reply_markup=kb)
@@ -183,6 +181,7 @@ async def run_web():
 
 async def main():
     await run_web()
+    # КЛЮЧЕВАЯ ИСПРАВЛЕННАЯ СТРОКА ДЛЯ СТАБИЛЬНОСТИ:
     await dp.start_polling(bot, drop_pending_updates=True)
 
 if __name__ == "__main__":
