@@ -3,7 +3,6 @@ import sqlite3
 import os
 import logging
 import random
-from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -13,8 +12,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 logging.basicConfig(level=logging.INFO)
 
 API_TOKEN = '8746100227:AAGJEyqYREvDG45np8PbTBbySRJx3lJGizo'
-CHANNEL_ID = -1001913679008
 ADMINS = [8350819510, 6495811530]
+# Впиши сюда юзернеймы каналов БЕЗ @ (пример: "kanal1", "kanal2")
+CHANNELS = ["kanal1", "kanal2", "kanal3"]
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
@@ -37,152 +37,84 @@ def main_menu():
         [KeyboardButton(text="👨‍💻 Admin")]
     ], resize_keyboard=True)
 
+async def check_subs(user_id):
+    for channel in CHANNELS:
+        try:
+            member = await bot.get_chat_member(chat_id=f"@{channel}", user_id=user_id)
+            if member.status not in ['member', 'administrator', 'creator']:
+                return False
+        except: return False
+    return True
+
 @dp.message(Command("start"))
 async def start(message: types.Message):
+    cursor.execute('INSERT OR IGNORE INTO users (id) VALUES (?)', (message.from_user.id,))
+    conn.commit()
     if message.from_user.id in ADMINS:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
-            [InlineKeyboardButton(text="👥 Ishtirokchilar", callback_data="admin_users")],
-            [InlineKeyboardButton(text="📢 Konkurs rasilkasi", callback_data="admin_mailing")],
-            [InlineKeyboardButton(text="🎲 Random", callback_data="admin_random")]
+            [InlineKeyboardButton(text="🎲 Random", callback_data="admin_random")],
+            [InlineKeyboardButton(text="📢 Rasilka", callback_data="admin_mailing")]
         ])
         await message.answer("👑 Admin-panel:", reply_markup=kb)
     else:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
-            [InlineKeyboardButton(text="🟢 Tekshirish", callback_data="check_sub")]
-        ])
-        await message.answer("🎉 AZIZZOMBI KONKURS GA XUSH KELIBSIZ!\n\nObuna bo'lgandan keyin 🟢 Tekshirish tugmasini bosing.", reply_markup=kb)
+        await message.answer("🎉 Konkursga xush kelibsiz! Avval 3 ta kanalga obuna bo'ling va keyin '🟢 Tekshirish' tugmasini bosing.",
+                           reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🟢 Tekshirish", callback_data="check_sub")]]))
 
 @dp.callback_query(F.data == "check_sub")
 async def check_sub(call: types.CallbackQuery):
-    try:
-        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=call.from_user.id)
-        if member.status in ['member', 'administrator', 'creator']:
-            await call.message.answer("✅ Ajoyib! Endi asosiy menyudan '🎁 Konkursga qatnash' tugmasini bosing.", reply_markup=main_menu())
-        else:
-            await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
-    except:
-        await call.answer("❌ Xatolik yuz berdi!")
+    if await check_subs(call.from_user.id):
+        await call.message.answer("✅ Ajoyib! Endi asosiy menyudan '🎁 Konkursga qatnash' tugmasini bosing.", reply_markup=main_menu())
+    else:
+        await call.answer("❌ Siz barcha kanallarga obuna bo'lmagansiz!", show_alert=True)
+
+@dp.callback_query(F.data == "admin_stats")
+async def admin_stats(call: types.CallbackQuery):
+    cursor.execute('SELECT count(*) FROM users')
+    all_users = cursor.fetchone()[0]
+    cursor.execute('SELECT count(*) FROM users WHERE registered = 1')
+    reg_users = cursor.fetchone()[0]
+    await call.message.answer(f"📊 Statistika:\n\n👥 Jami foydalanuvchilar: {all_users}\n🎯 Konkurs ishtirokchilari: {reg_users}")
 
 @dp.callback_query(F.data == "admin_random")
-async def admin_random_start(call: types.CallbackQuery, state: FSMContext):
-    await call.message.answer("Введите количество победителей (от 1 до 20):")
+async def admin_random(call: types.CallbackQuery, state: FSMContext):
+    await call.message.answer("Введите количество победителей (1-20):")
     await state.set_state(Reg.random_count)
 
 @dp.message(Reg.random_count)
 async def process_random(message: types.Message, state: FSMContext):
     try:
         count = int(message.text)
-        if 1 <= count <= 20:
-            cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
-            users = cursor.fetchall()
-            if not users:
-                await message.answer("Ishtirokchilar hali yo'q!")
-            else:
-                winners = random.sample(users, min(count, len(users)))
-                res = "🎁 G'oliblar:\n" + "\n".join([f"{w[0]} ({w[1]})" for w in winners])
-                await message.answer(res)
-            await state.clear()
-        else:
-            await message.answer("Iltimos, 1 dan 20 gacha raqam kiriting.")
-    except:
-        await message.answer("Xatolik! Iltimos, faqat raqam kiriting.")
-
-@dp.callback_query(F.data == "join_contest")
-async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
-    cursor.execute('SELECT registered FROM users WHERE id = ?', (call.from_user.id,))
-    user = cursor.fetchone()
-    if user and user[0] == 1:
-        await call.answer("⚠️ Siz allaqachon ro'yxatdan o'tgansiz!", show_alert=True)
-    else:
-        await call.message.answer("📝 Ishtirok etish uchun pasport bo'yicha FIO kiriting:")
-        await state.set_state(Reg.fio)
+        cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
+        users = cursor.fetchall()
+        winners = random.sample(users, min(count, len(users)))
+        res = "🎁 G'oliblar:\n" + "\n".join([f"{w[0]} ({w[1]})" for w in winners])
+        await message.answer(res)
+        await state.clear()
+    except: await message.answer("Xatolik! Raqam kiriting.")
 
 @dp.message(F.text == "🎁 Konkursga qatnash")
-async def start_contest(message: types.Message, state: FSMContext):
-    cursor.execute('SELECT registered FROM users WHERE id = ?', (message.from_user.id,))
-    user = cursor.fetchone()
-    if user and user[0] == 1:
-        await message.answer("⚠️ Siz allaqachon konkursda qatnashyapsiz!")
-    else:
-        await message.answer("📝 Ishtirok etish uchun pasport bo'yicha FIO kiriting:")
-        await state.set_state(Reg.fio)
+async def start_reg(message: types.Message, state: FSMContext):
+    await message.answer("📝 Ishtirok etish uchun FIO kiriting:")
+    await state.set_state(Reg.fio)
 
 @dp.message(Reg.fio)
 async def get_fio(message: types.Message, state: FSMContext):
     await state.update_data(fio=message.text)
-    kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📞 Raqamni yuborish", request_contact=True)]], resize_keyboard=True)
-    await message.answer("✅ Qabul qilindi! Endi telefon raqamingizni yuboring:", reply_markup=kb)
+    await message.answer("📞 Raqamni yuboring:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📞 Yuborish", request_contact=True)]], resize_keyboard=True))
     await state.set_state(Reg.phone)
 
 @dp.message(Reg.phone, F.contact)
 async def get_phone(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    cursor.execute('INSERT OR REPLACE INTO users (id, name, phone, registered) VALUES (?, ?, ?, 1)', 
-                   (message.from_user.id, data['fio'], message.contact.phone_number))
+    cursor.execute('UPDATE users SET name=?, phone=?, registered=1 WHERE id=?', (data['fio'], message.contact.phone_number, message.from_user.id))
     conn.commit()
-    await message.answer("🎉 Tabriklaymiz! Siz muvaffaqiyatli ro'yxatdan o'tdingiz.", reply_markup=main_menu())
+    await message.answer("🎉 Muvaffaqiyatli!", reply_markup=main_menu())
     await state.clear()
-
-@dp.message(F.text == "👤 Mening profilim")
-async def profile(message: types.Message):
-    cursor.execute('SELECT name, phone FROM users WHERE id = ?', (message.from_user.id,))
-    user = cursor.fetchone()
-    text = (f"👋 Assalomu aleykum 👤 {user[0] if user else 'Mehmon'}\n"
-            f"🆔 ID: {message.from_user.id}\n\n"
-            f"☎️ Telefon: {user[1] if user else 'Kiritilmagan'}")
-    await message.answer(text, reply_markup=main_menu())
-
-@dp.message(F.text == "👨‍💻 Admin")
-async def admin_contact(message: types.Message):
-    await message.answer("✍️ Savollaringiz bo'lsa adminga yozing: https://t.me/zombiadminuz")
-
-@dp.callback_query(F.data.startswith("admin_"))
-async def admin_panel(call: types.CallbackQuery, state: FSMContext):
-    if call.data == "admin_stats":
-        cursor.execute('SELECT count(*) FROM users WHERE registered = 1')
-        await call.message.answer(f"📊 Jami ishtirokchilar: {cursor.fetchone()[0]}")
-    elif call.data == "admin_users":
-        cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
-        users = cursor.fetchall()
-        text = "👥 Ishtirokchilar:\n" + "\n".join([f"{u[0]}: {u[1]}" for u in users])
-        await call.message.answer(text[:4000] if text else "Ishtirokchilar yo'q")
-    elif call.data == "admin_mailing":
-        await call.message.answer("Rasm yuboring:")
-        await state.set_state(Reg.mailing_photo)
-
-@dp.message(Reg.mailing_photo, F.photo)
-async def get_mailing_photo(message: types.Message, state: FSMContext):
-    await state.update_data(photo=message.photo[-1].file_id)
-    await message.answer("Konkurs tavsifini yozing:")
-    await state.set_state(Reg.mailing_text)
-
-@dp.message(Reg.mailing_text)
-async def get_mailing_text(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    cursor.execute('SELECT id FROM users')
-    users = cursor.fetchall()
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Ishtirok etish", callback_data="join_contest")]])
-    for u in users:
-        try: await bot.send_photo(u[0], data['photo'], caption=message.text, reply_markup=kb)
-        except: pass
-    await message.answer("✅ Rasylka yuborildi!")
-    await state.clear()
-
-async def handle(request): return web.Response(text="Bot is running")
-async def run_web():
-    app = web.Application()
-    app.router.add_get('/', handle)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get('PORT', 8080)))
-    await site.start()
 
 async def main():
-    await run_web()
-    # КЛЮЧЕВАЯ ИСПРАВЛЕННАЯ СТРОКА ДЛЯ СТАБИЛЬНОСТИ:
-    await dp.start_polling(bot, drop_pending_updates=True)
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
