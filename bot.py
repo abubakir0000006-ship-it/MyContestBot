@@ -21,6 +21,7 @@ dp = Dispatcher()
 
 conn = sqlite3.connect('contest.db', check_same_thread=False)
 cursor = conn.cursor()
+# Добавил id в таблицу, чтобы сохранять всех, кто нажал старт
 cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, registered INTEGER DEFAULT 0)')
 conn.commit()
 
@@ -39,6 +40,10 @@ def main_menu():
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
+    # Добавляем юзера в базу сразу, чтобы рассылка доставала всех
+    cursor.execute('INSERT OR IGNORE INTO users (id) VALUES (?)', (message.from_user.id,))
+    conn.commit()
+    
     if message.from_user.id in ADMINS:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
@@ -48,7 +53,6 @@ async def start(message: types.Message):
         ])
         await message.answer("👑 Admin-panel:", reply_markup=kb)
     else:
-        # Кнопки как на твоем фото
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
             [InlineKeyboardButton(text="🎬 YouTube", url="https://youtube.com/@example")],
@@ -60,7 +64,6 @@ async def start(message: types.Message):
 @dp.callback_query(F.data == "check_sub")
 async def check_sub(call: types.CallbackQuery):
     try:
-        # Проверяем только Telegram, так как к YouTube/Kick у бота нет доступа
         member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=call.from_user.id)
         if member.status in ['member', 'administrator', 'creator']:
             await call.message.answer("✅ Ajoyib! Endi asosiy menyudan '🎁 Konkursga qatnash' tugmasini bosing.", reply_markup=main_menu())
@@ -69,7 +72,7 @@ async def check_sub(call: types.CallbackQuery):
     except:
         await call.answer("❌ Xatolik yuz berdi!")
 
-# --- ВЕСЬ ОСТАЛЬНОЙ КОД (Admin-panel, Random, Регистрация) ОСТАЛСЯ БЕЗ ИЗМЕНЕНИЙ ---
+# --- Admin-panel ---
 
 @dp.callback_query(F.data == "admin_random")
 async def admin_random_start(call: types.CallbackQuery, state: FSMContext):
@@ -80,20 +83,17 @@ async def admin_random_start(call: types.CallbackQuery, state: FSMContext):
 async def process_random(message: types.Message, state: FSMContext):
     try:
         count = int(message.text)
-        if 1 <= count <= 20:
-            cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
-            users = cursor.fetchall()
-            if not users:
-                await message.answer("Ishtirokchilar hali yo'q!")
-            else:
-                winners = random.sample(users, min(count, len(users)))
-                res = "🎁 G'oliblar:\n" + "\n".join([f"{w[0]} ({w[1]})" for w in winners])
-                await message.answer(res)
-            await state.clear()
+        cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
+        users = cursor.fetchall()
+        if not users:
+            await message.answer("Ishtirokchilar hali yo'q!")
         else:
-            await message.answer("Iltimos, 1 dan 20 gacha raqam kiriting.")
+            winners = random.sample(users, min(count, len(users)))
+            res = "🎁 G'oliblar:\n" + "\n".join([f"{w[0]} ({w[1]})" for w in winners])
+            await message.answer(res)
+        await state.clear()
     except:
-        await message.answer("Xatolik! Iltimos, faqat raqam kiriting.")
+        await message.answer("Xatolik! Iltimos, raqam kiriting.")
 
 @dp.callback_query(F.data == "join_contest")
 async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
@@ -125,8 +125,7 @@ async def get_fio(message: types.Message, state: FSMContext):
 @dp.message(Reg.phone, F.contact)
 async def get_phone(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    cursor.execute('INSERT OR REPLACE INTO users (id, name, phone, registered) VALUES (?, ?, ?, 1)', 
-                   (message.from_user.id, data['fio'], message.contact.phone_number))
+    cursor.execute('UPDATE users SET name=?, phone=?, registered=1 WHERE id=?', (data['fio'], message.contact.phone_number, message.from_user.id))
     conn.commit()
     await message.answer("🎉 Tabriklaymiz! Siz muvaffaqiyatli ro'yxatdan o'tdingiz.", reply_markup=main_menu())
     await state.clear()
@@ -135,9 +134,9 @@ async def get_phone(message: types.Message, state: FSMContext):
 async def profile(message: types.Message):
     cursor.execute('SELECT name, phone FROM users WHERE id = ?', (message.from_user.id,))
     user = cursor.fetchone()
-    text = (f"👋 Assalomu aleykum 👤 {user[0] if user else 'Mehmon'}\n"
+    text = (f"👋 Assalomu aleykum 👤 {user[0] if user and user[0] else 'Mehmon'}\n"
             f"🆔 ID: {message.from_user.id}\n\n"
-            f"☎️ Telefon: {user[1] if user else 'Kiritilmagan'}")
+            f"☎️ Telefon: {user[1] if user and user[1] else 'Kiritilmagan'}")
     await message.answer(text, reply_markup=main_menu())
 
 @dp.message(F.text == "👨‍💻 Admin")
@@ -169,6 +168,7 @@ async def get_mailing_text(message: types.Message, state: FSMContext):
     data = await state.get_data()
     cursor.execute('SELECT id FROM users')
     users = cursor.fetchall()
+    # Кнопка теперь добавляется к каждому сообщению рассылки
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Ishtirok etish", callback_data="join_contest")]])
     for u in users:
         try: await bot.send_photo(u[0], data['photo'], caption=message.text, reply_markup=kb)
