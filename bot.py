@@ -1,8 +1,6 @@
 import asyncio
 import sqlite3
-import os
 import logging
-from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -20,8 +18,6 @@ dp = Dispatcher()
 
 conn = sqlite3.connect('contest.db', check_same_thread=False)
 cursor = conn.cursor()
-cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, registered INTEGER DEFAULT 0)')
-conn.commit()
 
 class Reg(StatesGroup):
     fio = State()
@@ -62,17 +58,7 @@ async def check_sub(call: types.CallbackQuery):
         else:
             await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
     except:
-        await call.answer("❌ Xatolik yuz berdi!")
-
-# Единая логика проверки регистрации
-async def handle_registration_check(message: types.Message, state: FSMContext):
-    cursor.execute('SELECT registered FROM users WHERE id = ?', (message.from_user.id,))
-    user = cursor.fetchone()
-    if user and user[0] == 1:
-        await message.answer("⚠️ Siz allaqachon konkursda qatnashyapsiz!")
-    else:
-        await message.answer("📝 Ishtirok etish uchun pasport bo'yicha FIO kiriting:")
-        await state.set_state(Reg.fio)
+        await call.answer("❌ Xatolik!")
 
 @dp.callback_query(F.data == "join_contest")
 async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
@@ -86,7 +72,13 @@ async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
 
 @dp.message(F.text == "🎁 Konkursga qatnash")
 async def start_contest(message: types.Message, state: FSMContext):
-    await handle_registration_check(message, state)
+    cursor.execute('SELECT registered FROM users WHERE id = ?', (message.from_user.id,))
+    user = cursor.fetchone()
+    if user and user[0] == 1:
+        await message.answer("⚠️ Siz allaqachon konkursda qatnashyapsiz!")
+    else:
+        await message.answer("📝 Ishtirok etish uchun pasport bo'yicha FIO kiriting:")
+        await state.set_state(Reg.fio)
 
 @dp.message(Reg.fio)
 async def get_fio(message: types.Message, state: FSMContext):
@@ -104,53 +96,9 @@ async def get_phone(message: types.Message, state: FSMContext):
     await message.answer("🎉 Tabriklaymiz! Siz muvaffaqiyatli ro'yxatdan o'tdingiz.", reply_markup=main_menu())
     await state.clear()
 
-@dp.message(F.text == "👤 Mening profilim")
-async def profile(message: types.Message):
-    cursor.execute('SELECT name, phone FROM users WHERE id = ?', (message.from_user.id,))
-    user = cursor.fetchone()
-    text = (f"👋 Assalomu aleykum 👤 {user[0] if user else 'Mehmon'}\n"
-            f"🆔 ID: {message.from_user.id}\n\n"
-            f"☎️ Telefon: {user[1] if user else 'Kiritilmagan'}")
-    await message.answer(text, reply_markup=main_menu())
-
-@dp.message(F.text == "👨‍💻 Admin")
-async def admin_contact(message: types.Message):
-    await message.answer("✍️ Savollaringiz bo'lsa adminga yozing: https://t.me/zombiadminuz")
-
-@dp.callback_query(F.data.startswith("admin_"))
-async def admin_panel(call: types.CallbackQuery, state: FSMContext):
-    if call.data == "admin_stats":
-        cursor.execute('SELECT count(*) FROM users')
-        await call.message.answer(f"📊 Jami ishtirokchilar: {cursor.fetchone()[0]}")
-    elif call.data == "admin_users":
-        cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
-        users = cursor.fetchall()
-        text = "👥 Ishtirokchilar:\n" + "\n".join([f"{u[0]}: {u[1]}" for u in users])
-        await call.message.answer(text[:4000] if text else "Ishtirokchilar yo'q")
-    elif call.data == "admin_mailing":
-        await call.message.answer("Rasm yuboring:")
-        await state.set_state(Reg.mailing_photo)
-
-@dp.message(Reg.mailing_photo, F.photo)
-async def get_mailing_photo(message: types.Message, state: FSMContext):
-    await state.update_data(photo=message.photo[-1].file_id)
-    await message.answer("Konkurs tavsifini yozing:")
-    await state.set_state(Reg.mailing_text)
-
-@dp.message(Reg.mailing_text)
-async def get_mailing_text(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    cursor.execute('SELECT id FROM users')
-    users = cursor.fetchall()
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Ishtirok etish", callback_data="join_contest")]])
-    for u in users:
-        try: await bot.send_photo(u[0], data['photo'], caption=message.text, reply_markup=kb)
-        except: pass
-    await message.answer("✅ Rasylka yuborildi!")
-    await state.clear()
-
 async def main():
-    await dp.start_polling(bot, drop_pending_updates=True)
+    print("Bot is starting...")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
