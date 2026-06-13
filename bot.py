@@ -18,10 +18,9 @@ ADMINS = [8350819510, 6495811530]
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# Обновил таблицу: добавил колонку status (1 = участвует)
 conn = sqlite3.connect('contest.db', check_same_thread=False)
 cursor = conn.cursor()
-cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, status INTEGER)')
+cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, registered INTEGER DEFAULT 0)')
 conn.commit()
 
 class Reg(StatesGroup):
@@ -47,24 +46,29 @@ async def start(message: types.Message):
     else:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
+            [InlineKeyboardButton(text="🎬 YouTube", url="https://www.youtube.com/@Azizzombistrim")],
+            [InlineKeyboardButton(text="🎮 Kick", url="https://kick.com/aziz-zombi")],
             [InlineKeyboardButton(text="🟢 Tekshirish", callback_data="check_sub")]
         ])
         await message.answer("🎉 AZIZZOMBI KONKURS GA XUSH KELIBSIZ!\n\nObuna bo'lgandan keyin 🟢 Tekshirish tugmasini bosing.", reply_markup=kb)
 
 @dp.callback_query(F.data == "check_sub")
 async def check_sub(call: types.CallbackQuery):
-    member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=call.from_user.id)
-    if member.status in ['member', 'administrator', 'creator']:
-        await call.message.answer("✅ Ajoyib! Endi asosiy menyudan '🎁 Konkursga qatnash' tugmasini bosing.", reply_markup=main_menu())
-    else:
-        await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=call.from_user.id)
+        if member.status in ['member', 'administrator', 'creator']:
+            await call.message.answer("✅ Ajoyib! Endi asosiy menyudan '🎁 Konkursga qatnash' tugmasini bosing.", reply_markup=main_menu())
+        else:
+            await call.answer("❌ Siz hali kanalga obuna bo'lmagansiz!", show_alert=True)
+    except:
+        await call.answer("❌ Xatolik yuz berdi, keyinroq urinib ko'ring.", show_alert=True)
 
 @dp.message(F.text == "🎁 Konkursga qatnash")
 async def start_contest(message: types.Message, state: FSMContext):
-    cursor.execute('SELECT status FROM users WHERE id = ?', (message.from_user.id,))
-    user = cursor.fetchone()
-    if user and user[0] == 1:
-        await message.answer("⚠️ Siz allaqachon ro'yxatdan o'tgansiz!")
+    cursor.execute('SELECT registered FROM users WHERE id = ?', (message.from_user.id,))
+    row = cursor.fetchone()
+    if row and row[0] == 1:
+        await message.answer("⚠️ Siz allaqachon ro'yxatdan o'tgansiz va konkursda qatnashyapsiz!")
     else:
         await message.answer("📝 Ishtirok etish uchun pasport bo'yicha FIO kiriting:")
         await state.set_state(Reg.fio)
@@ -79,8 +83,7 @@ async def get_fio(message: types.Message, state: FSMContext):
 @dp.message(Reg.phone, F.contact)
 async def get_phone(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    cursor.execute('INSERT OR REPLACE INTO users (id, name, phone, status) VALUES (?, ?, ?, 1)', 
-                   (message.from_user.id, data['fio'], message.contact.phone_number))
+    cursor.execute('INSERT OR REPLACE INTO users (id, name, phone, registered) VALUES (?, ?, ?, 1)', (message.from_user.id, data['fio'], message.contact.phone_number))
     conn.commit()
     await message.answer("🎉 Tabriklaymiz! Siz muvaffaqiyatli ro'yxatdan o'tdingiz.", reply_markup=main_menu())
     await state.clear()
