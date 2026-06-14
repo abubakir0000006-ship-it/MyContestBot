@@ -56,6 +56,7 @@ async def start(message: types.Message):
     if message.from_user.id in ADMINS:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="📢 Kanal obunachilari", callback_data="admin_chan_stats")],
             [InlineKeyboardButton(text="🤖 Botdagi obunachilar soni", callback_data="admin_bot_users")],
             [InlineKeyboardButton(text="👥 Ishtirokchilar", callback_data="admin_users")],
             [InlineKeyboardButton(text="📥 Bazani yuklab olish", callback_data="admin_export")],
@@ -164,6 +165,11 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
     if call.data == "admin_stats":
         cursor.execute('SELECT count(*) FROM users WHERE registered = 1')
         await call.message.answer(f"📊 Statistika:\nJami ishtirokchilar: {cursor.fetchone()[0]}")
+    elif call.data == "admin_chan_stats":
+        try:
+            count = await bot.get_chat_member_count(CHANNEL_ID)
+            await call.message.answer(f"📢 Kanalda jami: {count} ta obunachi bor.")
+        except: await call.answer("Xatolik! Bot kanal admini emas.")
     elif call.data == "admin_bot_users":
         cursor.execute('SELECT count(*) FROM users')
         await call.message.answer(f"🤖 Botdagi jami obunachilar soni: {cursor.fetchone()[0]}")
