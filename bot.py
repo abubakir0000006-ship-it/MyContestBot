@@ -38,16 +38,17 @@ def main_menu():
         [KeyboardButton(text="👨‍💻 Admin")]
     ], resize_keyboard=True)
 
-# --- АВТО-НАПОМИНАЛКА ---
+# --- ИСПРАВЛЕННАЯ НАПОМИНАЛКА (3 часа, без админов) ---
 async def auto_reminder():
     while True:
-        await asyncio.sleep(3600)  # Проверка каждый час
+        await asyncio.sleep(10800) # 3 часа
         cursor.execute('SELECT id FROM users WHERE registered = 0')
         unregistered_users = cursor.fetchall()
         for u in unregistered_users:
-            try:
-                await bot.send_message(u[0], "👋 Salom! Konkursda hali qatnashmadingiz. Tezroq ro'yxatdan o'ting va yutuqlarni yutib oling! 🎁")
-            except: pass
+            if u[0] not in ADMINS:
+                try:
+                    await bot.send_message(u[0], "👋 Salom! Konkursda hali qatnashmadingiz. Tezroq ro'yxatdan o'ting va yutuqlarni yutib oling! 🎁")
+                except: pass
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
@@ -56,6 +57,7 @@ async def start(message: types.Message):
     if message.from_user.id in ADMINS:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="📢 Kanal obunachilari", callback_data="admin_chan_stats")],
             [InlineKeyboardButton(text="👥 Ishtirokchilar", callback_data="admin_users")],
             [InlineKeyboardButton(text="📥 Bazani yuklab olish", callback_data="admin_export")],
             [InlineKeyboardButton(text="📢 Konkurs rasilkasi", callback_data="admin_mailing")],
@@ -71,6 +73,22 @@ async def start(message: types.Message):
         ])
         await message.answer("🎉 AZIZZOMBI KONKURS GA XUSH KELIBSIZ!\n\nObuna bo'lgandan keyin 🟢 Tekshirish tugmasini bosing.", reply_markup=kb)
 
+@dp.callback_query(F.data == "admin_chan_stats")
+async def admin_chan_stats(call: types.CallbackQuery):
+    try:
+        count = await bot.get_chat_member_count(CHANNEL_ID)
+        await call.message.answer(f"📢 Kanalda jami: {count} ta obunachi bor.")
+    except: await call.answer("Xatolik! Bot kanal admini emas.")
+
+@dp.callback_query(F.data == "admin_stats")
+async def admin_stats(call: types.CallbackQuery):
+    cursor.execute('SELECT count(*) FROM users')
+    all_users = cursor.fetchone()[0]
+    cursor.execute('SELECT count(*) FROM users WHERE registered = 1')
+    reg_users = cursor.fetchone()[0]
+    await call.message.answer(f"📊 Statistika:\nJami botdagi odamlar: {all_users}\nKonkurs ishtirokchilari: {reg_users}")
+
+# --- ОСТАЛЬНОЙ КОД БЕЗ ИЗМЕНЕНИЙ ---
 @dp.callback_query(F.data == "check_sub")
 async def check_sub(call: types.CallbackQuery):
     try:
@@ -160,10 +178,7 @@ async def admin_contact(message: types.Message):
 
 @dp.callback_query(F.data.startswith("admin_"))
 async def admin_panel(call: types.CallbackQuery, state: FSMContext):
-    if call.data == "admin_stats":
-        cursor.execute('SELECT count(*) FROM users WHERE registered = 1')
-        await call.message.answer(f"📊 Jami ishtirokchilar: {cursor.fetchone()[0]}")
-    elif call.data == "admin_users":
+    if call.data == "admin_users":
         cursor.execute('SELECT name, phone FROM users WHERE registered = 1')
         users = cursor.fetchall()
         text = "👥 Ishtirokchilar:\n" + "\n".join([f"{u[0]}: {u[1]}" for u in users])
@@ -195,10 +210,9 @@ async def get_mailing_text(message: types.Message, state: FSMContext):
     await message.answer("✅ Rasylka yuborildi!")
     await state.clear()
 
-async def handle(request): return web.Response(text="Bot is running")
 async def run_web():
     app = web.Application()
-    app.router.add_get('/', handle)
+    app.router.add_get('/', lambda r: web.Response(text="Bot is running"))
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get('PORT', 8080)))
@@ -206,7 +220,7 @@ async def run_web():
 
 async def main():
     await run_web()
-    asyncio.create_task(auto_reminder()) # Запускаем напоминалку
+    asyncio.create_task(auto_reminder())
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
