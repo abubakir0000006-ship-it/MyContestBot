@@ -285,7 +285,7 @@ async def start(message: types.Message):
 
     # ── Referal havola orqali kirgan bo'lsa
     args = message.text.split(maxsplit=1)
-    if not already_exists and len(args) > 1 and args[1].startswith("ref_"):
+    if len(args) > 1 and args[1].startswith("ref_"):
         try:
             inviter_id = int(args[1].replace("ref_", ""))
         except ValueError:
