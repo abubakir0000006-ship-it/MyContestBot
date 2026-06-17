@@ -420,13 +420,20 @@ async def get_ref_link(call: types.CallbackQuery):
     row = cursor.fetchone()
     points = row[0] if row and row[0] else 0
 
+    share_text = "AzizZombi konkursiga qatnash va sovg'a yutib ol! 🎁"
+    share_url  = f"https://t.me/share/url?url={link}&text={share_text}"
+
     await call.message.answer(
         f"🔗 <b>Sizning shaxsiy taklif havolangiz:</b>\n"
-        f"<code>{link}</code>\n\n"
+        f"<a href=\"{link}\">{link}</a>\n\n"
         f"Ushbu havolani do'stlaringizga yuboring. Ular shu havola orqali botga kirsa,\n"
         f"sizga <b>1 ball</b> qo'shiladi! ⭐\n\n"
         f"Hozirgi ballaringiz: <b>{points}/{REFERRAL_GOAL}</b>",
-        parse_mode="HTML"
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📤 Do'stlarga yuborish", url=share_url)]
+        ]),
+        parse_mode="HTML",
+        disable_web_page_preview=True
     )
     await call.answer()
 
