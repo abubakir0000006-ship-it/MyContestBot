@@ -34,7 +34,10 @@ cursor.executescript("""
         name        TEXT,
         phone       TEXT,
         registered  INTEGER DEFAULT 0,
-        joined_at   TEXT
+        joined_at   TEXT,
+        ref_points  INTEGER DEFAULT 0,
+        invited_by  INTEGER DEFAULT NULL,
+        reward_sent INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS broadcast_log (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,8 +45,27 @@ cursor.executescript("""
         fail_count  INTEGER,
         sent_at     TEXT
     );
+    CREATE TABLE IF NOT EXISTS referrals (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        inviter_id  INTEGER,
+        invited_id  INTEGER UNIQUE,
+        created_at  TEXT
+    );
 """)
 conn.commit()
+
+# Eski bazalar uchun ustunlarni qo'shib qo'yamiz (agar mavjud bo'lmasa)
+for col, col_type in [("ref_points", "INTEGER DEFAULT 0"),
+                       ("invited_by", "INTEGER DEFAULT NULL"),
+                       ("reward_sent", "INTEGER DEFAULT 0")]:
+    try:
+        cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+REFERRAL_GOAL   = 150              # nechta do'st taklif qilinganda mukofot beriladi
+REFERRAL_REWARD = "200 000 so'm"   # mukofot matni
 
 
 # ─── STATES ───────────────────────────────────────────────────────────────────
@@ -61,8 +83,22 @@ class Reg(StatesGroup):
 def main_menu():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="👤 Mening profilim"), KeyboardButton(text="🎁 Konkursga qatnash")],
-        [KeyboardButton(text="📊 Statistika"), KeyboardButton(text="👨‍💻 Admin")]
+        [KeyboardButton(text="👫 Do'stlarim"), KeyboardButton(text="📊 Statistika")],
+        [KeyboardButton(text="👨‍💻 Admin")]
     ], resize_keyboard=True)
+
+
+def profile_inline_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👫 Do'st qo'shish (taklif havolasi)", callback_data="get_ref_link")]
+    ])
+
+
+def friends_menu_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Taklif havolamni olish", callback_data="get_ref_link")],
+        [InlineKeyboardButton(text="📋 Taklif qilganlarim", callback_data="my_referrals_list")]
+    ])
 
 
 def admin_keyboard():
@@ -82,6 +118,10 @@ def admin_keyboard():
         [
             InlineKeyboardButton(text="📢 Xabar yuborish",    callback_data="admin_mailing"),
             InlineKeyboardButton(text="🎲 G'olib aniqlash",   callback_data="admin_random"),
+        ],
+        [
+            InlineKeyboardButton(text="🏆 Referal reytingi",  callback_data="admin_ref_top"),
+            InlineKeyboardButton(text="📥 Referal CSV",       callback_data="admin_ref_export"),
         ],
         [
             InlineKeyboardButton(text="🔄 Konkursni yangilash", callback_data="admin_reset_contest"),
@@ -123,6 +163,12 @@ async def get_full_stats() -> str:
     last_bcast = cursor.fetchone()
     last_bcast_str = f"{last_bcast[0]} ({last_bcast[1]} ta)" if last_bcast else "Hech qachon"
 
+    cursor.execute("SELECT count(*) FROM referrals")
+    total_refs = cursor.fetchone()[0]
+
+    cursor.execute("SELECT count(*) FROM users WHERE reward_sent = 1")
+    winners_cnt = cursor.fetchone()[0]
+
     return (
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 <b>TO'LIQ STATISTIKA</b>\n"
@@ -131,10 +177,79 @@ async def get_full_stats() -> str:
         f"✅ Ro'yxatdan o'tganlar:   <b>{registered}</b>\n"
         f"⏳ Hali o'tmаganlar:       <b>{pending}</b>\n"
         f"📢 Kanal obunachilari:     <b>{channel_count}</b>\n"
+        f"👫 Jami referallar:        <b>{total_refs}</b>\n"
+        f"🏆 Mukofot olganlar:       <b>{winners_cnt}</b>\n"
         f"📨 Oxirgi broadcast:       <b>{last_bcast_str}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🕐 Yangilangan: {datetime.now().strftime('%H:%M:%S')}"
     )
+
+
+async def notify_referral(inviter_id: int, invited_id: int, invited_name: str):
+    """Yangi do'st qo'shilganda chaqiruvchiga va adminlarga xabar beradi,
+    150 taklifga yetganda mukofot haqida alohida bildirishnoma yuboriladi."""
+    cursor.execute("SELECT ref_points, reward_sent, name FROM users WHERE id = ?", (inviter_id,))
+    row = cursor.fetchone()
+    if not row:
+        return
+    points, reward_sent, inviter_name = row
+    inviter_name = inviter_name or str(inviter_id)
+
+    # ── Chaqiruvchiga xabar
+    try:
+        await bot.send_message(
+            inviter_id,
+            f"🎉 <b>Yangi do'st qo'shildi!</b>\n"
+            f"👤 {invited_name}\n"
+            f"⭐ Sizning ballaringiz: <b>{points}/{REFERRAL_GOAL}</b>\n\n"
+            f"Mukofot: <b>{REFERRAL_REWARD}</b> ({REFERRAL_GOAL} ta do'st uchun)",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+    # ── Adminlarga "SMS" (xabar) — har bir yangi do'st haqida
+    for admin_id in ADMINS:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"👫 <b>Referal: yangi taklif!</b>\n"
+                f"🙋 Taklif qildi: <b>{inviter_name}</b> (<code>{inviter_id}</code>)\n"
+                f"🆕 Qo'shilgan: <b>{invited_name}</b> (<code>{invited_id}</code>)\n"
+                f"⭐ Hozirgi ball: <b>{points}/{REFERRAL_GOAL}</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    # ── Maqsadga yetganda (150 ta do'st)
+    if points >= REFERRAL_GOAL and not reward_sent:
+        cursor.execute("UPDATE users SET reward_sent = 1 WHERE id = ?", (inviter_id,))
+        conn.commit()
+        try:
+            await bot.send_message(
+                inviter_id,
+                f"🏆 <b>TABRIKLAYMIZ!</b>\n"
+                f"Siz <b>{REFERRAL_GOAL}</b> ta do'st taklif qildingiz!\n"
+                f"🎁 Mukofotingiz: <b>{REFERRAL_REWARD}</b>\n\n"
+                f"Mukofotni olish uchun admin bilan bog'laning: https://t.me/zombiadminuz",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        for admin_id in ADMINS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"🏆🔥 <b>G'OLIB TOPILDI! Mukofot to'lash kerak!</b>\n"
+                    f"👤 <b>{inviter_name}</b>\n"
+                    f"🆔 <code>{inviter_id}</code>\n"
+                    f"⭐ Ball: <b>{points}/{REFERRAL_GOAL}</b>\n"
+                    f"🎁 Mukofot: <b>{REFERRAL_REWARD}</b>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
 
 # ─── AUTO REMINDER ─────────────────────────────────────────────────────────────
@@ -158,11 +273,41 @@ async def auto_reminder():
 @dp.message(Command("start"))
 async def start(message: types.Message):
     uid = message.from_user.id
+
+    cursor.execute("SELECT id FROM users WHERE id = ?", (uid,))
+    already_exists = cursor.fetchone() is not None
+
     cursor.execute(
         "INSERT OR IGNORE INTO users (id, joined_at) VALUES (?, ?)",
         (uid, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     )
     conn.commit()
+
+    # ── Referal havola orqali kirgan bo'lsa
+    args = message.text.split(maxsplit=1)
+    if not already_exists and len(args) > 1 and args[1].startswith("ref_"):
+        try:
+            inviter_id = int(args[1].replace("ref_", ""))
+        except ValueError:
+            inviter_id = None
+
+        if inviter_id and inviter_id != uid:
+            cursor.execute("SELECT invited_by FROM users WHERE id = ?", (uid,))
+            row = cursor.fetchone()
+            if row and row[0] is None:
+                cursor.execute("SELECT id FROM users WHERE id = ?", (inviter_id,))
+                if cursor.fetchone():
+                    try:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO referrals (inviter_id, invited_id, created_at) VALUES (?, ?, ?)",
+                            (inviter_id, uid, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                        )
+                        cursor.execute("UPDATE users SET invited_by = ? WHERE id = ?", (inviter_id, uid))
+                        cursor.execute("UPDATE users SET ref_points = ref_points + 1 WHERE id = ?", (inviter_id,))
+                        conn.commit()
+                        await notify_referral(inviter_id, uid, message.from_user.full_name)
+                    except Exception:
+                        pass
 
     if is_admin(uid):
         await message.answer(
@@ -200,12 +345,16 @@ async def check_sub(call: types.CallbackQuery):
 # ─── PROFILE ──────────────────────────────────────────────────────────────────
 @dp.message(F.text == "👤 Mening profilim")
 async def profile(message: types.Message):
-    cursor.execute("SELECT name, phone, joined_at, registered FROM users WHERE id = ?", (message.from_user.id,))
+    cursor.execute(
+        "SELECT name, phone, joined_at, registered, ref_points FROM users WHERE id = ?",
+        (message.from_user.id,)
+    )
     user = cursor.fetchone()
     name     = user[0] if user and user[0] else "Mehmon"
     phone    = user[1] if user and user[1] else "Kiritilmagan"
     joined   = user[2] if user and user[2] else "—"
     status   = "✅ Ishtirokchi" if user and user[3] == 1 else "⏳ Ro'yxatdan o'tmagan"
+    points   = user[4] if user and user[4] else 0
 
     await message.answer(
         f"👤 <b>PROFIL</b>\n"
@@ -215,9 +364,15 @@ async def profile(message: types.Message):
         f"☎️ Telefon: <b>{phone}</b>\n"
         f"📅 Ro'yxatdan o'tgan sana: <b>{joined}</b>\n"
         f"🏆 Holat: <b>{status}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━",
+        f"👫 Taklif qilingan do'stlar: <b>{points}/{REFERRAL_GOAL}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👇 Do'st qo'shib, <b>{REFERRAL_REWARD}</b> yutib oling!",
         reply_markup=main_menu(),
         parse_mode="HTML"
+    )
+    await message.answer(
+        "👫 Do'stlarni taklif qiling va mukofot yutib oling:",
+        reply_markup=profile_inline_kb()
     )
 
 
@@ -231,6 +386,73 @@ async def public_stats(message: types.Message):
         reply_markup=main_menu(),
         parse_mode="HTML"
     )
+
+
+# ─── DO'STLARIM (REFERAL) ──────────────────────────────────────────────────────
+@dp.message(F.text == "👫 Do'stlarim")
+async def friends_menu(message: types.Message):
+    cursor.execute("SELECT ref_points FROM users WHERE id = ?", (message.from_user.id,))
+    row = cursor.fetchone()
+    points = row[0] if row and row[0] else 0
+    left = max(REFERRAL_GOAL - points, 0)
+
+    await message.answer(
+        f"👫 <b>DO'STLAR TIZIMI</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"1 do'st = 1 ball ⭐\n"
+        f"{REFERRAL_GOAL} ball = <b>{REFERRAL_REWARD}</b> 🎁\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"⭐ Sizning ballaringiz: <b>{points}/{REFERRAL_GOAL}</b>\n"
+        f"🎯 Mukofotgacha qoldi: <b>{left}</b> ta do'st\n"
+        f"━━━━━━━━━━━━━━━━━━━━",
+        reply_markup=friends_menu_kb(),
+        parse_mode="HTML"
+    )
+
+
+@dp.callback_query(F.data == "get_ref_link")
+async def get_ref_link(call: types.CallbackQuery):
+    uid = call.from_user.id
+    bot_info = await bot.get_me()
+    link = f"https://t.me/{bot_info.username}?start=ref_{uid}"
+
+    cursor.execute("SELECT ref_points FROM users WHERE id = ?", (uid,))
+    row = cursor.fetchone()
+    points = row[0] if row and row[0] else 0
+
+    await call.message.answer(
+        f"🔗 <b>Sizning shaxsiy taklif havolangiz:</b>\n"
+        f"<code>{link}</code>\n\n"
+        f"Ushbu havolani do'stlaringizga yuboring. Ular shu havola orqali botga kirsa,\n"
+        f"sizga <b>1 ball</b> qo'shiladi! ⭐\n\n"
+        f"Hozirgi ballaringiz: <b>{points}/{REFERRAL_GOAL}</b>",
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "my_referrals_list")
+async def my_referrals_list(call: types.CallbackQuery):
+    uid = call.from_user.id
+    cursor.execute(
+        "SELECT u.name, u.id, r.created_at FROM referrals r "
+        "JOIN users u ON u.id = r.invited_id WHERE r.inviter_id = ? ORDER BY r.created_at DESC",
+        (uid,)
+    )
+    refs = cursor.fetchall()
+    if not refs:
+        await call.answer("Siz hali hech kimni taklif qilmadingiz.", show_alert=True)
+        return
+
+    lines = [f"{i+1}. {r[0] or 'Foydalanuvchi'}  |  <code>{r[1]}</code>  |  {r[2]}" for i, r in enumerate(refs)]
+    text = (
+        f"📋 <b>SIZ TAKLIF QILGAN DO'STLAR</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines) +
+        f"\n━━━━━━━━━━━━━━━━━━━━\nJami: <b>{len(refs)}</b> ta"
+    )
+    for chunk in [text[i:i+4000] for i in range(0, len(text), 4000)]:
+        await call.message.answer(chunk, parse_mode="HTML")
+    await call.answer()
 
 
 # ─── CONTEST REGISTRATION ─────────────────────────────────────────────────────
@@ -413,6 +635,47 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
     elif data == "admin_ban":
         await call.message.answer("🚫 Bloklash uchun foydalanuvchi <b>Telegram ID</b>sini kiriting:", parse_mode="HTML")
         await state.set_state(Reg.ban_id)
+
+    # ── Referal reytingi (TOP)
+    elif data == "admin_ref_top":
+        cursor.execute(
+            "SELECT name, id, ref_points FROM users WHERE ref_points > 0 ORDER BY ref_points DESC LIMIT 30"
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            await call.answer("Hali hech kim do'st taklif qilmagan.", show_alert=True)
+            return
+        lines = []
+        for i, (name, uid2, pts) in enumerate(rows):
+            mark = "🏆" if pts >= REFERRAL_GOAL else "⭐"
+            lines.append(f"{i+1}. {mark} {name or 'Foydalanuvchi'}  |  <code>{uid2}</code>  |  {pts}/{REFERRAL_GOAL}")
+        text = (
+            "🏆 <b>REFERAL REYTINGI (TOP-30)</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
+        )
+        for chunk in [text[i:i+4000] for i in range(0, len(text), 4000)]:
+            await call.message.answer(chunk, parse_mode="HTML")
+
+    # ── Referal CSV export
+    elif data == "admin_ref_export":
+        cursor.execute(
+            "SELECT inviter_id, invited_id, created_at FROM referrals ORDER BY created_at DESC"
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            await call.answer("Referal ma'lumotlari yo'q.", show_alert=True)
+            return
+        fname = f"referrals_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        with open(fname, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Taklif qildi (ID)", "Qo'shilgan (ID)", "Sana"])
+            writer.writerows(rows)
+        await call.message.answer_document(
+            FSInputFile(fname),
+            caption=f"📥 <b>Jami {len(rows)} ta referal</b>\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            parse_mode="HTML"
+        )
+        os.remove(fname)
 
 
 # ─── RESET CONFIRM/CANCEL ─────────────────────────────────────────────────────
