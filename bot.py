@@ -21,56 +21,80 @@ API_TOKEN = '8746100227:AAGJEyqYREvDG45np8PbTBbySRJx3lJGizo'
 CHANNEL_ID = -1001913679008
 ADMINS = [8350819510, 6495811530]
  
+# ⚠️ MUHIM — BAZANI SAQLASH UCHUN ZAXIRA KANAL:
+# Render bepul tarif xotirasi har deployda tozalanadi, shuning uchun baza (contest.db)
+# vaqti-vaqti bilan shaxsiy (private) Telegram kanaliga avtomatik yuborib turiladi
+# (xuddi "KINOFIKS ARXIV BOT" kabi), va bot qayta ishga tushganda shu kanaldan tiklab oladi.
+#
+# Sozlash uchun:
+#   1. Yangi PRIVATE kanal yarating (faqat o'zingiz uchun, ishtirokchilarga ko'rinmaydi)
+#   2. Botni shu kanalga ADMIN qilib qo'shing ("Xabar yuborish" va "Pin qilish" huquqlari bilan)
+#   3. Kanalga istalgan bir xabar yuboring, keyin shu xabarni @username_to_id_bot ga forward qiling —
+#      sizga -100 bilan boshlanadigan raqam (chat ID) qaytaradi
+#   4. Shu raqamni pastga, BACKUP_CHAT_ID o'rniga qo'ying
+#
+# Sozlanmaguncha (0 turganda) bot oddiy ishlayveradi, faqat zaxira nusxa olinmaydi.
+BACKUP_CHAT_ID = -1004307518213  # ✅ САЛИХ БОТ — zaxira kanal
+ 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
  
 # ─── DATABASE ─────────────────────────────────────────────────────────────────
-conn = sqlite3.connect('contest.db', check_same_thread=False)
-cursor = conn.cursor()
+DB_PATH = 'contest.db'
+conn = None
+cursor = None
  
-cursor.executescript("""
-    CREATE TABLE IF NOT EXISTS users (
-        id          INTEGER PRIMARY KEY,
-        name        TEXT,
-        phone       TEXT,
-        registered  INTEGER DEFAULT 0,
-        joined_at   TEXT,
-        ref_points  INTEGER DEFAULT 0,
-        invited_by  INTEGER DEFAULT NULL,
-        reward_sent INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS broadcast_log (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        sent_count  INTEGER,
-        fail_count  INTEGER,
-        sent_at     TEXT
-    );
-    CREATE TABLE IF NOT EXISTS referrals (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        inviter_id  INTEGER,
-        invited_id  INTEGER UNIQUE,
-        created_at  TEXT
-    );
-    CREATE TABLE IF NOT EXISTS admin_log (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        admin_id    INTEGER,
-        action      TEXT,
-        details     TEXT,
-        created_at  TEXT
-    );
-""")
-conn.commit()
  
-# Eski bazalar uchun ustunlarni qo'shib qo'yamiz (agar mavjud bo'lmasa)
-for col, col_type in [("ref_points", "INTEGER DEFAULT 0"),
-                       ("invited_by", "INTEGER DEFAULT NULL"),
-                       ("reward_sent", "INTEGER DEFAULT 0"),
-                       ("username", "TEXT")]:
-    try:
-        cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
+def init_database():
+    """Bazaga ulanish va jadvallarni yaratish. restore_database_if_needed() dan KEYIN chaqiriladi,
+    shunda agar Render xotirani tozalagan bo'lsa, eski baza tiklab olingandan keyingina ulanamiz."""
+    global conn, cursor
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cursor = conn.cursor()
+ 
+    cursor.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT,
+            phone       TEXT,
+            registered  INTEGER DEFAULT 0,
+            joined_at   TEXT,
+            ref_points  INTEGER DEFAULT 0,
+            invited_by  INTEGER DEFAULT NULL,
+            reward_sent INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS broadcast_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            sent_count  INTEGER,
+            fail_count  INTEGER,
+            sent_at     TEXT
+        );
+        CREATE TABLE IF NOT EXISTS referrals (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            inviter_id  INTEGER,
+            invited_id  INTEGER UNIQUE,
+            created_at  TEXT
+        );
+        CREATE TABLE IF NOT EXISTS admin_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id    INTEGER,
+            action      TEXT,
+            details     TEXT,
+            created_at  TEXT
+        );
+    """)
+    conn.commit()
+ 
+    # Eski bazalar uchun ustunlarni qo'shib qo'yamiz (agar mavjud bo'lmasa)
+    for col, col_type in [("ref_points", "INTEGER DEFAULT 0"),
+                           ("invited_by", "INTEGER DEFAULT NULL"),
+                           ("reward_sent", "INTEGER DEFAULT 0"),
+                           ("username", "TEXT")]:
+        try:
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
  
 REFERRAL_GOAL   = 150              # nechta do'st taklif qilinganda mukofot beriladi
 REFERRAL_REWARD = "200 000 so'm"   # mukofot matni
@@ -169,6 +193,7 @@ def admin_moderation_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚫 Заблокировать",       callback_data="admin_ban")],
         [InlineKeyboardButton(text="📜 Журнал действий",     callback_data="admin_log_view")],
+        [InlineKeyboardButton(text="💾 Сделать бэкап базы",  callback_data="admin_backup_now")],
     ])
  
  
@@ -203,6 +228,55 @@ def log_admin_action(admin_id: int, action: str, details: str = ""):
         conn.commit()
     except Exception:
         pass
+ 
+ 
+async def restore_database_if_needed():
+    """Render yangi deploy paytida xotirani tozalagan bo'lsa (mahalliy fayl yo'q/bo'sh),
+    eng so'nggi zaxira nusxani BACKUP_CHAT_ID dagi pin qilingan xabardan tiklab oladi."""
+    if not BACKUP_CHAT_ID:
+        logging.warning("BACKUP_CHAT_ID sozlanmagan — zaxira nusxa o'chirilgan, baza yangidan boshlanadi.")
+        return
+    if os.path.exists(DB_PATH) and os.path.getsize(DB_PATH) > 0:
+        return  # mahalliy baza allaqachon bor — uni qayta yozib yubormaymiz
+    try:
+        chat = await bot.get_chat(BACKUP_CHAT_ID)
+        pinned = chat.pinned_message
+        if pinned and pinned.document:
+            file_info = await bot.get_file(pinned.document.file_id)
+            await bot.download_file(file_info.file_path, destination=DB_PATH)
+            logging.info("✅ Baza zaxira nusxadan muvaffaqiyatli tiklandi.")
+        else:
+            logging.info("Zaxira kanalida hali pin qilingan baza fayli yo'q — yangi baza yaratiladi.")
+    except Exception as e:
+        logging.warning(f"Bazani tiklashda xatolik: {e}")
+ 
+ 
+async def backup_database():
+    """Joriy bazani BACKUP_CHAT_ID kanaliga fayl sifatida yuboradi va pin qiladi."""
+    if not BACKUP_CHAT_ID:
+        return
+    try:
+        cursor.execute("SELECT count(*) FROM users")
+        total = cursor.fetchone()[0]
+        msg = await bot.send_document(
+            BACKUP_CHAT_ID,
+            FSInputFile(DB_PATH),
+            caption=(
+                f"💾 #DB_BACKUP\n"
+                f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"👥 Пользователей в базе: {total}"
+            )
+        )
+        await bot.pin_chat_message(BACKUP_CHAT_ID, msg.message_id, disable_notification=True)
+    except Exception as e:
+        logging.warning(f"Bazani zaxiralashda xatolik: {e}")
+ 
+ 
+async def auto_backup():
+    """Har 30 daqiqada avtomatik zaxira nusxa oladi."""
+    while True:
+        await asyncio.sleep(1800)
+        await backup_database()
  
  
 def progress_bar(points: int, goal: int, length: int = 10) -> str:
@@ -928,6 +1002,19 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
         ])
         await call.message.answer("🎯 Кому отправить сообщение?", reply_markup=kb)
  
+    # ── Резервная копия базы (вручную)
+    elif data == "admin_backup_now":
+        if not BACKUP_CHAT_ID:
+            await call.answer("⚠️ BACKUP_CHAT_ID не настроен в коде! Резервное копирование выключено.", show_alert=True)
+            return
+        await call.message.answer("⏳ Создаю резервную копию базы...")
+        await backup_database()
+        log_admin_action(call.from_user.id, "Ручной бэкап", "Запущен вручную из панели")
+        await call.message.answer(
+            "✅ Резервная копия отправлена в канал-хранилище.",
+            reply_markup=with_back("moderation")
+        )
+ 
  
 # ─── RESET CONFIRM/CANCEL ─────────────────────────────────────────────────────
 @dp.callback_query(F.data == "admin_reset_confirm")
@@ -1164,8 +1251,11 @@ async def run_web():
  
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 async def main():
+    await restore_database_if_needed()
+    init_database()
     await run_web()
     asyncio.create_task(auto_reminder())
+    asyncio.create_task(auto_backup())
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
  
