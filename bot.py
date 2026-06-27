@@ -14,13 +14,19 @@ from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     ReplyKeyboardMarkup, KeyboardButton, FSInputFile
 )
- 
+
 logging.basicConfig(level=logging.INFO)
- 
-API_TOKEN = '8746100227:AAGJEyqYREvDG45np8PbTBbySRJx3lJGizo'
+
+API_TOKEN = os.environ.get('BOT_TOKEN')
+if not API_TOKEN:
+    raise RuntimeError(
+        "BOT_TOKEN topilmadi! Render → Environment → Environment Variables bo'limida "
+        "BOT_TOKEN nomli o'zgaruvchi qo'shing va qiymatiga tokenni yozing. "
+        "Tokenni hech qachon kodga yozib qo'ymang — bu xavfsiz emas."
+    )
 CHANNEL_ID = -1001913679008
 ADMINS = [8350819510, 6495811530]
- 
+
 # ⚠️ MUHIM — BAZANI SAQLASH UCHUN ZAXIRA KANAL:
 # Render bepul tarif xotirasi har deployda tozalanadi, shuning uchun baza (contest.db)
 # vaqti-vaqti bilan shaxsiy (private) Telegram kanaliga avtomatik yuborib turiladi
@@ -35,23 +41,23 @@ ADMINS = [8350819510, 6495811530]
 #
 # Sozlanmaguncha (0 turganda) bot oddiy ishlayveradi, faqat zaxira nusxa olinmaydi.
 BACKUP_CHAT_ID = -1004307518213  # ✅ САЛИХ БОТ — zaxira kanal
- 
+
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
- 
+
 # ─── DATABASE ─────────────────────────────────────────────────────────────────
 DB_PATH = 'contest.db'
 conn = None
 cursor = None
- 
- 
+
+
 def init_database():
     """Bazaga ulanish va jadvallarni yaratish. restore_database_if_needed() dan KEYIN chaqiriladi,
     shunda agar Render xotirani tozalagan bo'lsa, eski baza tiklab olingandan keyingina ulanamiz."""
     global conn, cursor
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     cursor = conn.cursor()
- 
+
     cursor.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id          INTEGER PRIMARY KEY,
@@ -84,7 +90,7 @@ def init_database():
         );
     """)
     conn.commit()
- 
+
     # Eski bazalar uchun ustunlarni qo'shib qo'yamiz (agar mavjud bo'lmasa)
     for col, col_type in [("ref_points", "INTEGER DEFAULT 0"),
                            ("invited_by", "INTEGER DEFAULT NULL"),
@@ -95,11 +101,11 @@ def init_database():
             conn.commit()
         except sqlite3.OperationalError:
             pass
- 
+
 REFERRAL_GOAL   = 150              # nechta do'st taklif qilinganda mukofot beriladi
 REFERRAL_REWARD = "200 000 so'm"   # mukofot matni
- 
- 
+
+
 # ─── STATES ───────────────────────────────────────────────────────────────────
 class Reg(StatesGroup):
     fio           = State()
@@ -112,8 +118,8 @@ class Reg(StatesGroup):
     search_query      = State()
     seg_mailing_photo = State()
     seg_mailing_text  = State()
- 
- 
+
+
 # ─── FOYDALANUVCHI KLAVIATURALARI (o'zbek tilida) ──────────────────────────────
 def main_menu():
     return ReplyKeyboardMarkup(keyboard=[
@@ -121,22 +127,22 @@ def main_menu():
         [KeyboardButton(text="👫 Do'stlarim"), KeyboardButton(text="📊 Statistika")],
         [KeyboardButton(text="👨‍💻 Admin")]
     ], resize_keyboard=True)
- 
- 
+
+
 def profile_inline_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👫 Do'st qo'shish (taklif havolasi)", callback_data="get_ref_link")]
     ])
- 
- 
+
+
 def friends_menu_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Taklif havolamni olish", callback_data="get_ref_link")],
         [InlineKeyboardButton(text="📋 Taklif qilganlarim", callback_data="my_referrals_list")],
         [InlineKeyboardButton(text="🏆 TOP-10 do'stlar reytingi", callback_data="top10_referrals")]
     ])
- 
- 
+
+
 def subscribe_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📢 TELEGRAM", url="https://t.me/+ZQzR8IaB1OU1MDdi")],
@@ -144,8 +150,8 @@ def subscribe_keyboard():
         [InlineKeyboardButton(text="🎮 Kick",     url="https://kick.com/aziz-zombi")],
         [InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_sub")],
     ])
- 
- 
+
+
 # ─── ADMIN KLAVIATURALARI (rus tilida) ─────────────────────────────────────────
 def admin_main_kb():
     """Pastki (reply) klaviatura — admin panelning asosiy bo'limlari."""
@@ -154,15 +160,15 @@ def admin_main_kb():
         [KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="🎁 Конкурс")],
         [KeyboardButton(text="🚫 Модерация")],
     ], resize_keyboard=True)
- 
- 
+
+
 def admin_stats_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📈 Общая статистика", callback_data="admin_stats")],
         [InlineKeyboardButton(text="📊 Рост по дням",      callback_data="admin_growth")],
     ])
- 
- 
+
+
 def admin_participants_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 Список участников", callback_data="admin_users")],
@@ -170,16 +176,16 @@ def admin_participants_kb():
         [InlineKeyboardButton(text="🔍 Поиск",             callback_data="admin_search")],
         [InlineKeyboardButton(text="👤 Все username",      callback_data="admin_usernames")],
     ])
- 
- 
+
+
 def admin_mailing_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✉️ Всем",                callback_data="admin_mailing")],
         [InlineKeyboardButton(text="🎯 По аудитории",        callback_data="admin_segment_mailing")],
         [InlineKeyboardButton(text="📋 История рассылок",    callback_data="admin_bcast_log")],
     ])
- 
- 
+
+
 def admin_contest_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎲 Выбрать победителя",  callback_data="admin_random")],
@@ -187,16 +193,16 @@ def admin_contest_kb():
         [InlineKeyboardButton(text="📥 CSV рефералов",       callback_data="admin_ref_export")],
         [InlineKeyboardButton(text="🔄 Сбросить конкурс",    callback_data="admin_reset_contest")],
     ])
- 
- 
+
+
 def admin_moderation_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚫 Заблокировать",       callback_data="admin_ban")],
         [InlineKeyboardButton(text="📜 Журнал действий",     callback_data="admin_log_view")],
         [InlineKeyboardButton(text="💾 Сделать бэкап базы",  callback_data="admin_backup_now")],
     ])
- 
- 
+
+
 CATEGORY_MAP = {
     "stats":        ("📊 Раздел: Статистика\nВыберите действие:",   admin_stats_kb),
     "participants": ("👥 Раздел: Участники\nВыберите действие:",    admin_participants_kb),
@@ -204,20 +210,20 @@ CATEGORY_MAP = {
     "contest":      ("🎁 Раздел: Конкурс\nВыберите действие:",      admin_contest_kb),
     "moderation":   ("🚫 Раздел: Модерация\nВыберите действие:",    admin_moderation_kb),
 }
- 
- 
+
+
 def with_back(category: str):
     """Natija xabariga 'Orqaga' (rus: Назад) tugmasini qo'shadi."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"backmenu_{category}")]
     ])
- 
- 
+
+
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 def is_admin(uid: int) -> bool:
     return uid in ADMINS
- 
- 
+
+
 def log_admin_action(admin_id: int, action: str, details: str = ""):
     """Admin amalini jurnalga yozadi (statistikani buzmaydi, faqat tarix uchun)."""
     try:
@@ -228,8 +234,8 @@ def log_admin_action(admin_id: int, action: str, details: str = ""):
         conn.commit()
     except Exception:
         pass
- 
- 
+
+
 async def restore_database_if_needed():
     """Render yangi deploy paytida xotirani tozalagan bo'lsa (mahalliy fayl yo'q/bo'sh),
     eng so'nggi zaxira nusxani BACKUP_CHAT_ID dagi pin qilingan xabardan tiklab oladi."""
@@ -249,8 +255,8 @@ async def restore_database_if_needed():
             logging.info("Zaxira kanalida hali pin qilingan baza fayli yo'q — yangi baza yaratiladi.")
     except Exception as e:
         logging.warning(f"Bazani tiklashda xatolik: {e}")
- 
- 
+
+
 async def backup_database():
     """Joriy bazani BACKUP_CHAT_ID kanaliga fayl sifatida yuboradi va pin qiladi."""
     if not BACKUP_CHAT_ID:
@@ -270,47 +276,47 @@ async def backup_database():
         await bot.pin_chat_message(BACKUP_CHAT_ID, msg.message_id, disable_notification=True)
     except Exception as e:
         logging.warning(f"Bazani zaxiralashda xatolik: {e}")
- 
- 
+
+
 async def auto_backup():
     """Har 30 daqiqada avtomatik zaxira nusxa oladi."""
     while True:
         await asyncio.sleep(1800)
         await backup_database()
- 
- 
+
+
 def progress_bar(points: int, goal: int, length: int = 10) -> str:
     """Vizual progress-bar: ▓▓▓▓░░░░░░ 40/150"""
     points = max(0, min(points, goal))
     filled = int(length * points / goal) if goal else 0
     return "▓" * filled + "░" * (length - filled)
- 
- 
+
+
 async def get_full_stats() -> str:
     cursor.execute("SELECT count(*) FROM users")
     total = cursor.fetchone()[0]
- 
+
     cursor.execute("SELECT count(*) FROM users WHERE registered = 1")
     registered = cursor.fetchone()[0]
- 
+
     cursor.execute("SELECT count(*) FROM users WHERE registered = 0")
     pending = cursor.fetchone()[0]
- 
+
     try:
         channel_count = await bot.get_chat_member_count(CHANNEL_ID)
     except Exception:
         channel_count = "N/A"
- 
+
     cursor.execute("SELECT sent_at, sent_count FROM broadcast_log ORDER BY id DESC LIMIT 1")
     last_bcast = cursor.fetchone()
     last_bcast_str = f"{last_bcast[0]} ({last_bcast[1]} шт.)" if last_bcast else "Ещё не было"
- 
+
     cursor.execute("SELECT count(*) FROM referrals")
     total_refs = cursor.fetchone()[0]
- 
+
     cursor.execute("SELECT count(*) FROM users WHERE reward_sent = 1")
     winners_cnt = cursor.fetchone()[0]
- 
+
     return (
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 <b>ПОЛНАЯ СТАТИСТИКА</b>\n"
@@ -325,8 +331,8 @@ async def get_full_stats() -> str:
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🕐 Обновлено: {datetime.now().strftime('%H:%M:%S')}"
     )
- 
- 
+
+
 async def notify_referral(inviter_id: int, invited_id: int, invited_name: str):
     """Yangi do'st qo'shilganda chaqiruvchiga (o'zbekcha) va adminlarga (ruscha) xabar beradi,
     150 taklifga yetganda mukofot haqida alohida bildirishnoma yuboriladi."""
@@ -336,7 +342,7 @@ async def notify_referral(inviter_id: int, invited_id: int, invited_name: str):
         return
     points, reward_sent, inviter_name = row
     inviter_name = inviter_name or str(inviter_id)
- 
+
     # ── Chaqiruvchiga xabar (o'zbek tilida — foydalanuvchi tomoni)
     try:
         await bot.send_message(
@@ -349,7 +355,7 @@ async def notify_referral(inviter_id: int, invited_id: int, invited_name: str):
         )
     except Exception:
         pass
- 
+
     # ── Adminlarga xabar (rus tilida — admin tomoni)
     for admin_id in ADMINS:
         try:
@@ -363,7 +369,7 @@ async def notify_referral(inviter_id: int, invited_id: int, invited_name: str):
             )
         except Exception:
             pass
- 
+
     # ── Maqsadga yetganda (150 ta do'st)
     if points >= REFERRAL_GOAL and not reward_sent:
         cursor.execute("UPDATE users SET reward_sent = 1 WHERE id = ?", (inviter_id,))
@@ -392,7 +398,7 @@ async def notify_referral(inviter_id: int, invited_id: int, invited_name: str):
                 )
             except Exception:
                 pass
- 
+
     # ── Maqsadgacha oz qoldi — qo'shimcha rag'bat (faqat hali g'olib bo'lmaganlarga)
     elif not reward_sent and (REFERRAL_GOAL - points) in (5, 3, 1):
         left = REFERRAL_GOAL - points
@@ -406,8 +412,8 @@ async def notify_referral(inviter_id: int, invited_id: int, invited_name: str):
             )
         except Exception:
             pass
- 
- 
+
+
 # ─── AUTO REMINDER ─────────────────────────────────────────────────────────────
 async def auto_reminder():
     while True:
@@ -423,26 +429,26 @@ async def auto_reminder():
                     )
                 except Exception:
                     pass
- 
- 
+
+
 # ─── /START ───────────────────────────────────────────────────────────────────
 @dp.message(Command("start"))
 async def start(message: types.Message):
     uid = message.from_user.id
- 
+
     cursor.execute("SELECT id FROM users WHERE id = ?", (uid,))
     already_exists = cursor.fetchone() is not None
- 
+
     cursor.execute(
         "INSERT OR IGNORE INTO users (id, joined_at) VALUES (?, ?)",
         (uid, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     )
     conn.commit()
- 
+
     # Username'ni har doim yangilab turamiz (odam username o'zgartirsa ham bazada yangi bo'lsin)
     cursor.execute("UPDATE users SET username = ? WHERE id = ?", (message.from_user.username, uid))
     conn.commit()
- 
+
     # ── Referal havola orqali kirgan bo'lsa
     args = message.text.split(maxsplit=1)
     if len(args) > 1 and args[1].startswith("ref_"):
@@ -450,7 +456,7 @@ async def start(message: types.Message):
             inviter_id = int(args[1].replace("ref_", ""))
         except ValueError:
             inviter_id = None
- 
+
         if inviter_id and inviter_id != uid:
             cursor.execute("SELECT invited_by FROM users WHERE id = ?", (uid,))
             row = cursor.fetchone()
@@ -468,7 +474,7 @@ async def start(message: types.Message):
                         await notify_referral(inviter_id, uid, message.from_user.full_name)
                     except Exception:
                         pass
- 
+
     if is_admin(uid):
         await message.answer(
             "👑 <b>Панель администратора</b>\n"
@@ -484,8 +490,8 @@ async def start(message: types.Message):
             reply_markup=subscribe_keyboard(),
             parse_mode="HTML"
         )
- 
- 
+
+
 # ─── CHECK SUBSCRIPTION ───────────────────────────────────────────────────────
 @dp.callback_query(F.data == "check_sub")
 async def check_sub(call: types.CallbackQuery):
@@ -501,8 +507,8 @@ async def check_sub(call: types.CallbackQuery):
             await call.answer("❌ Siz hali barcha kanallarga obuna bo'lmagansiz!", show_alert=True)
     except Exception:
         await call.answer("❌ Xatolik yuz berdi. Keyinroq urinib ko'ring.", show_alert=True)
- 
- 
+
+
 # ─── PROFILE ──────────────────────────────────────────────────────────────────
 @dp.message(F.text == "👤 Mening profilim")
 async def profile(message: types.Message):
@@ -516,7 +522,7 @@ async def profile(message: types.Message):
     joined   = user[2] if user and user[2] else "—"
     status   = "✅ Ishtirokchi" if user and user[3] == 1 else "⏳ Ro'yxatdan o'tmagan"
     points   = user[4] if user and user[4] else 0
- 
+
     await message.answer(
         f"👤 <b>PROFIL</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -540,8 +546,8 @@ async def profile(message: types.Message):
         f"{progress_bar(points, REFERRAL_GOAL)}  {points}/{REFERRAL_GOAL}",
         parse_mode="HTML"
     )
- 
- 
+
+
 # ─── PUBLIC STATS ─────────────────────────────────────────────────────────────
 @dp.message(F.text == "📊 Statistika")
 async def public_stats(message: types.Message):
@@ -552,8 +558,8 @@ async def public_stats(message: types.Message):
         reply_markup=main_menu(),
         parse_mode="HTML"
     )
- 
- 
+
+
 # ─── DO'STLARIM (REFERAL) ──────────────────────────────────────────────────────
 @dp.message(F.text == "👫 Do'stlarim")
 async def friends_menu(message: types.Message):
@@ -561,7 +567,7 @@ async def friends_menu(message: types.Message):
     row = cursor.fetchone()
     points = row[0] if row and row[0] else 0
     left = max(REFERRAL_GOAL - points, 0)
- 
+
     await message.answer(
         f"👫 <b>DO'STLAR TIZIMI</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -574,21 +580,21 @@ async def friends_menu(message: types.Message):
         reply_markup=friends_menu_kb(),
         parse_mode="HTML"
     )
- 
- 
+
+
 @dp.callback_query(F.data == "get_ref_link")
 async def get_ref_link(call: types.CallbackQuery):
     uid = call.from_user.id
     bot_info = await bot.get_me()
     link = f"https://t.me/{bot_info.username}?start=ref_{uid}"
- 
+
     cursor.execute("SELECT ref_points FROM users WHERE id = ?", (uid,))
     row = cursor.fetchone()
     points = row[0] if row and row[0] else 0
- 
+
     share_text = "AzizZombi konkursiga qatnash va sovg'a yutib ol! 🎁"
     share_url  = f"https://t.me/share/url?url={link}&text={share_text}"
- 
+
     await call.message.answer(
         f"🔗 <b>Sizning shaxsiy taklif havolangiz:</b>\n"
         f"<a href=\"{link}\">{link}</a>\n\n"
@@ -602,8 +608,8 @@ async def get_ref_link(call: types.CallbackQuery):
         disable_web_page_preview=True
     )
     await call.answer()
- 
- 
+
+
 @dp.callback_query(F.data == "my_referrals_list")
 async def my_referrals_list(call: types.CallbackQuery):
     uid = call.from_user.id
@@ -616,7 +622,7 @@ async def my_referrals_list(call: types.CallbackQuery):
     if not refs:
         await call.answer("Siz hali hech kimni taklif qilmadingiz.", show_alert=True)
         return
- 
+
     lines = [f"{i+1}. {r[0] or 'Foydalanuvchi'}  |  <code>{r[1]}</code>  |  {r[2]}" for i, r in enumerate(refs)]
     text = (
         f"📋 <b>SIZ TAKLIF QILGAN DO'STLAR</b>\n"
@@ -626,8 +632,8 @@ async def my_referrals_list(call: types.CallbackQuery):
     for chunk in [text[i:i+4000] for i in range(0, len(text), 4000)]:
         await call.message.answer(chunk, parse_mode="HTML")
     await call.answer()
- 
- 
+
+
 @dp.callback_query(F.data == "top10_referrals")
 async def top10_referrals(call: types.CallbackQuery):
     cursor.execute(
@@ -650,8 +656,8 @@ async def top10_referrals(call: types.CallbackQuery):
     )
     await call.message.answer(text, parse_mode="HTML")
     await call.answer()
- 
- 
+
+
 # ─── CONTEST REGISTRATION ─────────────────────────────────────────────────────
 @dp.message(F.text == "🎁 Konkursga qatnash")
 async def start_contest(message: types.Message, state: FSMContext):
@@ -662,8 +668,8 @@ async def start_contest(message: types.Message, state: FSMContext):
     else:
         await message.answer("📝 Ishtirok etish uchun <b>pasport bo'yicha FIO</b>ingizni kiriting:", parse_mode="HTML")
         await state.set_state(Reg.fio)
- 
- 
+
+
 @dp.callback_query(F.data == "join_contest")
 async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
     cursor.execute("SELECT registered FROM users WHERE id = ?", (call.from_user.id,))
@@ -673,8 +679,8 @@ async def join_contest_callback(call: types.CallbackQuery, state: FSMContext):
     else:
         await call.message.answer("📝 <b>Pasport bo'yicha FIO</b>ingizni kiriting:", parse_mode="HTML")
         await state.set_state(Reg.fio)
- 
- 
+
+
 @dp.message(Reg.fio)
 async def get_fio(message: types.Message, state: FSMContext):
     await state.update_data(fio=message.text)
@@ -684,8 +690,8 @@ async def get_fio(message: types.Message, state: FSMContext):
     )
     await message.answer("✅ FIO qabul qilindi! Endi telefon raqamingizni yuboring:", reply_markup=kb)
     await state.set_state(Reg.phone)
- 
- 
+
+
 @dp.message(Reg.phone, F.contact)
 async def get_phone(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -703,7 +709,7 @@ async def get_phone(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
     await state.clear()
- 
+
     # Adminlarga xabar berish (rus tilida — admin tomoni)
     for admin_id in ADMINS:
         try:
@@ -717,14 +723,14 @@ async def get_phone(message: types.Message, state: FSMContext):
             )
         except Exception:
             pass
- 
- 
+
+
 # ─── ADMIN CONTACT (foydalanuvchi tomoni) ──────────────────────────────────────
 @dp.message(F.text == "👨‍💻 Admin")
 async def admin_contact(message: types.Message):
     await message.answer("✍️ Savollaringiz bo'lsa adminga yozing: https://t.me/zombiadminuz")
- 
- 
+
+
 # ─── ADMIN: BO'LIM TUGMALARI (pastki klaviatura, rus tilida) ───────────────────
 @dp.message(F.text == "📊 Статистика")
 async def menu_stats(message: types.Message):
@@ -732,40 +738,40 @@ async def menu_stats(message: types.Message):
         return
     text, kb_func = CATEGORY_MAP["stats"]
     await message.answer(text, reply_markup=kb_func())
- 
- 
+
+
 @dp.message(F.text == "👥 Участники")
 async def menu_participants(message: types.Message):
     if not is_admin(message.from_user.id):
         return
     text, kb_func = CATEGORY_MAP["participants"]
     await message.answer(text, reply_markup=kb_func())
- 
- 
+
+
 @dp.message(F.text == "📢 Рассылка")
 async def menu_mailing(message: types.Message):
     if not is_admin(message.from_user.id):
         return
     text, kb_func = CATEGORY_MAP["mailing"]
     await message.answer(text, reply_markup=kb_func())
- 
- 
+
+
 @dp.message(F.text == "🎁 Конкурс")
 async def menu_contest(message: types.Message):
     if not is_admin(message.from_user.id):
         return
     text, kb_func = CATEGORY_MAP["contest"]
     await message.answer(text, reply_markup=kb_func())
- 
- 
+
+
 @dp.message(F.text == "🚫 Модерация")
 async def menu_moderation(message: types.Message):
     if not is_admin(message.from_user.id):
         return
     text, kb_func = CATEGORY_MAP["moderation"]
     await message.answer(text, reply_markup=kb_func())
- 
- 
+
+
 # ─── ADMIN: "ORQAGA / НАЗАД" TUGMASI ───────────────────────────────────────────
 @dp.callback_query(F.data.startswith("backmenu_"))
 async def back_to_category(call: types.CallbackQuery, state: FSMContext):
@@ -779,22 +785,22 @@ async def back_to_category(call: types.CallbackQuery, state: FSMContext):
         text, kb_func = entry
         await call.message.answer(text, reply_markup=kb_func())
     await call.answer()
- 
- 
+
+
 # ─── ADMIN CALLBACKS (asosiy amallar) ──────────────────────────────────────────
 @dp.callback_query(F.data.startswith("admin_"))
 async def admin_panel(call: types.CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
         await call.answer("⛔ Нет доступа!", show_alert=True)
         return
- 
+
     data = call.data
- 
+
     # ── Статистика
     if data == "admin_stats":
         text = await get_full_stats()
         await call.message.answer(text, reply_markup=with_back("stats"), parse_mode="HTML")
- 
+
     # ── Рост по дням
     elif data == "admin_growth":
         cursor.execute("""
@@ -819,7 +825,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
             "━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
         )
         await call.message.answer(text, reply_markup=with_back("stats"), parse_mode="HTML")
- 
+
     # ── Список участников
     elif data == "admin_users":
         cursor.execute("SELECT name, phone, joined_at FROM users WHERE registered = 1 ORDER BY joined_at DESC")
@@ -833,7 +839,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
         for i, chunk in enumerate(chunks):
             is_last = (i == len(chunks) - 1)
             await call.message.answer(chunk, reply_markup=with_back("participants") if is_last else None, parse_mode="HTML")
- 
+
     # ── CSV скачать
     elif data == "admin_export":
         cursor.execute("SELECT id, name, phone, joined_at FROM users WHERE registered = 1")
@@ -850,7 +856,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
         os.remove(fname)
- 
+
     # ── История рассылок
     elif data == "admin_bcast_log":
         cursor.execute("SELECT sent_at, sent_count, fail_count FROM broadcast_log ORDER BY id DESC LIMIT 10")
@@ -864,7 +870,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
             reply_markup=with_back("mailing"),
             parse_mode="HTML"
         )
- 
+
     # ── Сбросить конкурс
     elif data == "admin_reset_contest":
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -878,12 +884,12 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
             reply_markup=kb,
             parse_mode="HTML"
         )
- 
+
     # ── Рассылка всем
     elif data == "admin_mailing":
         await call.message.answer("🖼 Отправьте фото (для общей рассылки):")
         await state.set_state(Reg.mailing_photo)
- 
+
     # ── Выбрать победителя
     elif data == "admin_random":
         cursor.execute("SELECT count(*) FROM users WHERE registered=1")
@@ -895,12 +901,12 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
         await state.set_state(Reg.random_count)
- 
+
     # ── Блокировка
     elif data == "admin_ban":
         await call.message.answer("🚫 Введите Telegram <b>ID</b> пользователя для блокировки:", parse_mode="HTML")
         await state.set_state(Reg.ban_id)
- 
+
     # ── Топ по рефералам
     elif data == "admin_ref_top":
         cursor.execute(
@@ -922,7 +928,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
         for i, chunk in enumerate(chunks):
             is_last = (i == len(chunks) - 1)
             await call.message.answer(chunk, reply_markup=with_back("contest") if is_last else None, parse_mode="HTML")
- 
+
     # ── CSV рефералов
     elif data == "admin_ref_export":
         cursor.execute(
@@ -944,7 +950,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
         os.remove(fname)
- 
+
     # ── Поиск пользователя (ID, телефон, username, имя)
     elif data == "admin_search":
         await call.message.answer(
@@ -952,7 +958,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
         await state.set_state(Reg.search_query)
- 
+
     # ── Все username
     elif data == "admin_usernames":
         cursor.execute(
@@ -976,7 +982,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
         for i, chunk in enumerate(chunks):
             is_last = (i == len(chunks) - 1)
             await call.message.answer(chunk, reply_markup=with_back("participants") if is_last else None, parse_mode="HTML")
- 
+
     # ── Журнал действий администратора
     elif data == "admin_log_view":
         cursor.execute(
@@ -992,7 +998,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
         for i, chunk in enumerate(chunks):
             is_last = (i == len(chunks) - 1)
             await call.message.answer(chunk, reply_markup=with_back("moderation") if is_last else None, parse_mode="HTML")
- 
+
     # ── Сегментированная (целевая) рассылка
     elif data == "admin_segment_mailing":
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1001,7 +1007,7 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="⏳ Только незарегистрированным", callback_data="seg_pending")],
         ])
         await call.message.answer("🎯 Кому отправить сообщение?", reply_markup=kb)
- 
+
     # ── Резервная копия базы (вручную)
     elif data == "admin_backup_now":
         if not BACKUP_CHAT_ID:
@@ -1014,8 +1020,8 @@ async def admin_panel(call: types.CallbackQuery, state: FSMContext):
             "✅ Резервная копия отправлена в канал-хранилище.",
             reply_markup=with_back("moderation")
         )
- 
- 
+
+
 # ─── RESET CONFIRM/CANCEL ─────────────────────────────────────────────────────
 @dp.callback_query(F.data == "admin_reset_confirm")
 async def reset_confirm(call: types.CallbackQuery):
@@ -1029,13 +1035,13 @@ async def reset_confirm(call: types.CallbackQuery):
         reply_markup=with_back("contest"),
         parse_mode="HTML"
     )
- 
- 
+
+
 @dp.callback_query(F.data == "admin_reset_cancel")
 async def reset_cancel(call: types.CallbackQuery):
     await call.message.answer("❌ Отменено.")
- 
- 
+
+
 # ─── ВЫБОР ПОБЕДИТЕЛЯ ───────────────────────────────────────────────────────────
 @dp.message(Reg.random_count)
 async def process_random(message: types.Message, state: FSMContext):
@@ -1063,8 +1069,8 @@ async def process_random(message: types.Message, state: FSMContext):
         await state.clear()
     except ValueError:
         await message.answer("❌ Ошибка! Введите число от 1 до 20.")
- 
- 
+
+
 # ─── БЛОКИРОВКА ПОЛЬЗОВАТЕЛЯ ────────────────────────────────────────────────────
 @dp.message(Reg.ban_id)
 async def process_ban(message: types.Message, state: FSMContext):
@@ -1087,8 +1093,8 @@ async def process_ban(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("❌ Неверный ID. Введите число.")
     await state.clear()
- 
- 
+
+
 # ─── ПОИСК ПОЛЬЗОВАТЕЛЯ ─────────────────────────────────────────────────────────
 @dp.message(Reg.search_query)
 async def process_search(message: types.Message, state: FSMContext):
@@ -1125,8 +1131,8 @@ async def process_search(message: types.Message, state: FSMContext):
     for i, chunk in enumerate(chunks):
         is_last = (i == len(chunks) - 1)
         await message.answer(chunk, reply_markup=with_back("participants") if is_last else None, parse_mode="HTML")
- 
- 
+
+
 # ─── СЕГМЕНТИРОВАННАЯ РАССЫЛКА ───────────────────────────────────────────────────
 @dp.callback_query(F.data.in_(["seg_all", "seg_registered", "seg_pending"]))
 async def seg_choose_audience(call: types.CallbackQuery, state: FSMContext):
@@ -1136,20 +1142,20 @@ async def seg_choose_audience(call: types.CallbackQuery, state: FSMContext):
     await state.update_data(audience=call.data)
     await call.message.answer("🖼 Отправьте фото (для сегментированной рассылки):")
     await state.set_state(Reg.seg_mailing_photo)
- 
- 
+
+
 @dp.message(Reg.seg_mailing_photo, F.photo)
 async def seg_get_photo(message: types.Message, state: FSMContext):
     await state.update_data(photo=message.photo[-1].file_id)
     await message.answer("✍️ Теперь напишите текст сообщения:")
     await state.set_state(Reg.seg_mailing_text)
- 
- 
+
+
 @dp.message(Reg.seg_mailing_text)
 async def seg_get_text_and_send(message: types.Message, state: FSMContext):
     data = await state.get_data()
     audience = data.get("audience", "seg_all")
- 
+
     if audience == "seg_registered":
         cursor.execute("SELECT id FROM users WHERE registered = 1")
         audience_label = "Только зарегистрированным"
@@ -1159,11 +1165,11 @@ async def seg_get_text_and_send(message: types.Message, state: FSMContext):
     else:
         cursor.execute("SELECT id FROM users")
         audience_label = "Всем"
- 
+
     users = cursor.fetchall()
     sent, fail = 0, 0
     await message.answer(f"⏳ Рассылка началась ({audience_label}). Отправка {len(users)} пользователям...")
- 
+
     for (uid,) in users:
         try:
             await bot.send_photo(uid, data["photo"], caption=message.text)
@@ -1171,14 +1177,14 @@ async def seg_get_text_and_send(message: types.Message, state: FSMContext):
         except Exception:
             fail += 1
         await asyncio.sleep(0.05)
- 
+
     cursor.execute(
         "INSERT INTO broadcast_log (sent_count, fail_count, sent_at) VALUES (?, ?, ?)",
         (sent, fail, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     )
     conn.commit()
     log_admin_action(message.from_user.id, "Сегмент-рассылка", f"{audience_label}: ✅{sent} ❌{fail}")
- 
+
     await message.answer(
         f"✅ <b>Сегмент-рассылка завершена!</b>\n"
         f"🎯 Аудитория: <b>{audience_label}</b>\n"
@@ -1188,16 +1194,16 @@ async def seg_get_text_and_send(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
     await state.clear()
- 
- 
+
+
 # ─── РАССЫЛКА ВСЕМ ──────────────────────────────────────────────────────────────
 @dp.message(Reg.mailing_photo, F.photo)
 async def get_mailing_photo(message: types.Message, state: FSMContext):
     await state.update_data(photo=message.photo[-1].file_id)
     await message.answer("✍️ Теперь напишите текст сообщения (на узбекском — его увидят участники):")
     await state.set_state(Reg.mailing_text)
- 
- 
+
+
 @dp.message(Reg.mailing_text)
 async def get_mailing_text(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -1207,13 +1213,13 @@ async def get_mailing_text(message: types.Message, state: FSMContext):
         [InlineKeyboardButton(text="🎮 Kick",     url="https://kick.com/aziz-zombi")],
         [InlineKeyboardButton(text="✅ Ishtirok etish", callback_data="join_contest")],
     ])
- 
+
     cursor.execute("SELECT id FROM users")
     users      = cursor.fetchall()
     sent, fail = 0, 0
- 
+
     await message.answer(f"⏳ Рассылка началась. Отправка {len(users)} пользователям...")
- 
+
     for (uid,) in users:
         try:
             await bot.send_photo(uid, data["photo"], caption=message.text, reply_markup=kb)
@@ -1221,14 +1227,14 @@ async def get_mailing_text(message: types.Message, state: FSMContext):
         except Exception:
             fail += 1
         await asyncio.sleep(0.05)  # flood limit uchun
- 
+
     cursor.execute(
         "INSERT INTO broadcast_log (sent_count, fail_count, sent_at) VALUES (?, ?, ?)",
         (sent, fail, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     )
     conn.commit()
     log_admin_action(message.from_user.id, "Общая рассылка", f"✅{sent} ❌{fail}")
- 
+
     await message.answer(
         f"✅ <b>Рассылка завершена!</b>\n"
         f"📨 Отправлено: <b>{sent}</b>\n"
@@ -1237,8 +1243,8 @@ async def get_mailing_text(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
     await state.clear()
- 
- 
+
+
 # ─── WEB SERVER (keep-alive) ──────────────────────────────────────────────────
 async def run_web():
     app = web.Application()
@@ -1247,8 +1253,8 @@ async def run_web():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", 8080)))
     await site.start()
- 
- 
+
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 async def main():
     await restore_database_if_needed()
@@ -1258,7 +1264,7 @@ async def main():
     asyncio.create_task(auto_backup())
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
- 
- 
+
+
 if __name__ == "__main__":
     asyncio.run(main())
